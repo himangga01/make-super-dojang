@@ -27,7 +27,7 @@ export const SIGNATURE_STYLES = {
     { id: 'ko-stylish-swoosh', label: '밑줄', font: 'Stylish', deco: 'swoosh' },
     { id: 'ko-bw', label: '또박또박', font: 'Black And White Picture' },
     { id: 'ko-pen-vertical', label: '세로 서명', font: 'Nanum Pen Script', vertical: true },
-    { id: 'ko-brush-overlap', label: '겹침 흘림', font: 'Nanum Brush Script', spacing: -0.14, slant: 14 },
+    { id: 'ko-brush-overlap', label: '겹침 흘림', font: 'Nanum Brush Script', spacing: -0.07, slant: 14 },
     { id: 'ko-dokdo-strike', label: '가로지르기', font: 'East Sea Dokdo', deco: 'strike' },
     { id: 'ko-dokdo-circle', label: '기운 동그라미', font: 'Dokdo', deco: 'circle', rotate: -4 },
     { id: 'ko-pen-loop', label: '고리 밑줄', font: 'Nanum Pen Script', deco: 'loop' },

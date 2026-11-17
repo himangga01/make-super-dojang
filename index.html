@@ -2,16 +2,19 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'none'; object-src 'none'">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>슈퍼도장 · 무료 전자서명·도장 만들기</title>
-  <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 서명 48가지, 도장 28가지, 문서에 바로 넣기까지. 한글·영문 지원.">
+  <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 서명 형태 한글·영문 각 24가지, 도장 28가지, 문서에 바로 넣기까지. 한글·영문 지원.">
   <meta name="theme-color" content="#e5483b">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/icon-192.png">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=East+Sea+Dokdo&family=Dokdo&family=Gaegu:wght@700&family=Hi+Melody&family=Gamja+Flower&family=Yeon+Sung&family=Poor+Story&family=Single+Day&family=Cute+Font&family=Kirang+Haerang&family=Stylish&family=Black+And+White+Picture&family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Alex+Brush&family=Mr+Dafoe&family=Homemade+Apple&family=Caveat:wght@600&family=Pinyon+Script&family=Herr+Von+Muellerhoff&family=Monsieur+La+Doulaise&family=La+Belle+Aurore&family=Kristi&family=Satisfy&family=Parisienne&family=Yellowtail&family=Rouge+Script&family=Mrs+Saint+Delafield&family=Cedarville+Cursive&family=Reenie+Beanie&family=Marck+Script&family=Nanum+Myeongjo:wght@800&family=Noto+Serif+KR:wght@900&family=Song+Myung&family=Black+Han+Sans&family=Gowun+Batang:wght@700&family=Do+Hyeon&family=Hahmlet:wght@700&family=Jua&family=Gugi&family=Cinzel:wght@700&family=Playfair+Display:wght@700&family=Libre+Baskerville:wght@700&family=Oswald:wght@600&family=Special+Elite&family=Black+Ops+One&family=Bebas+Neue&display=block">
+  <!-- 글꼴 CSS 는 화면 그리기를 막지 않도록 print 로 받아 두고, 서명·도장을 만들 때 js/fonts.js 가 켠다 -->
+  <link id="font-css" rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=East+Sea+Dokdo&family=Dokdo&family=Gaegu:wght@700&family=Hi+Melody&family=Gamja+Flower&family=Yeon+Sung&family=Poor+Story&family=Single+Day&family=Cute+Font&family=Kirang+Haerang&family=Stylish&family=Black+And+White+Picture&family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Alex+Brush&family=Mr+Dafoe&family=Homemade+Apple&family=Caveat:wght@600&family=Pinyon+Script&family=Herr+Von+Muellerhoff&family=Monsieur+La+Doulaise&family=La+Belle+Aurore&family=Kristi&family=Satisfy&family=Parisienne&family=Yellowtail&family=Rouge+Script&family=Mrs+Saint+Delafield&family=Cedarville+Cursive&family=Reenie+Beanie&family=Marck+Script&family=Nanum+Myeongjo:wght@800&family=Noto+Serif+KR:wght@900&family=Song+Myung&family=Black+Han+Sans&family=Gowun+Batang:wght@700&family=Do+Hyeon&family=Hahmlet:wght@700&family=Jua&family=Gugi&family=Cinzel:wght@700&family=Playfair+Display:wght@700&family=Libre+Baskerville:wght@700&family=Oswald:wght@600&family=Special+Elite&family=Black+Ops+One&family=Bebas+Neue&display=block" media="print" crossorigin="anonymous">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -112,10 +115,10 @@
           </div>
         </div>
         <div class="results-head">
-          <span class="results-count" id="sign-count-label"></span>
+          <h3 class="results-count" id="sign-count-label" tabindex="-1"></h3>
           <button type="button" class="btn btn-ghost btn-sm" id="sign-zip" disabled>전체 ZIP 다운로드</button>
         </div>
-        <div class="results" id="sign-results" aria-live="polite">
+        <div class="results" id="sign-results">
           <p class="empty">이름을 입력하면 서명 후보 24가지가 나타나요.</p>
         </div>
       </div>
@@ -163,7 +166,8 @@
               <label class="field-label" for="stamp-date">날짜 도장</label>
               <input type="date" id="stamp-date">
               <select id="stamp-date-label" aria-label="날짜 도장 문구">
-                <option value="">확인</option>
+                <option value="">기본 (한글 확인 · 영문 APPROVED)</option>
+                <option>확인</option>
                 <option>결재</option>
                 <option>검수</option>
                 <option>승인</option>
@@ -177,10 +181,11 @@
           </div>
         </details>
         <div class="results-head">
-          <span class="results-count" id="stamp-count-label"></span>
+          <h3 class="results-count" id="stamp-count-label" tabindex="-1"></h3>
           <button type="button" class="btn btn-ghost btn-sm" id="stamp-zip" disabled>전체 ZIP 다운로드</button>
         </div>
-        <div class="results stamps" id="stamp-results" aria-live="polite">
+        <p class="notice">만든 도장은 이미지일 뿐, 등록된 인감이나 공인 전자서명이 아니에요. 다른 사람 이름으로 만들어 쓰면 위조로 처벌받을 수 있어요.</p>
+        <div class="results stamps" id="stamp-results">
           <p class="empty">이름을 입력하면 도장 후보 28가지가 나타나요.</p>
         </div>
       </div>
@@ -193,12 +198,14 @@
           <span>계약서, 신청서 등을 JPG·PNG로 올리세요. PDF는 화면 캡처나 이미지로 저장해서 올려 주세요.</span>
         </label>
         <div class="doc-add" id="doc-add">
-          <span class="field-label">넣을 항목</span>
+          <span class="field-label" id="doc-add-label">넣을 항목</span>
           <button type="button" class="btn btn-outline btn-sm" data-add="draw" disabled>직접 서명</button>
           <button type="button" class="btn btn-outline btn-sm" data-add="sign" disabled>선택한 서명</button>
           <button type="button" class="btn btn-outline btn-sm" data-add="stamp" disabled>선택한 도장</button>
         </div>
-        <p class="hint">보관함 항목도 '문서에 넣기'로 올릴 수 있어요. 올린 항목은 끌어서 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꿔요.</p>
+        <p class="hint" id="doc-add-hint">직접 서명 탭에서 서명을 그리거나, 서명·도장 생성 탭에서 하나를 고르면 여기서 넣을 수 있어요. 보관함 항목은 '문서에 넣기' 버튼으로 올려요.</p>
+        <p class="hint">올린 항목은 끌어서 옮기고, 오른쪽 아래 동그란 손잡이를 끌어 크기를 바꿔요.</p>
+        <p class="notice">본인 문서에 본인 서명·도장만 넣어 주세요. 다른 사람 명의로 문서를 꾸미면 사문서 위조가 될 수 있어요.</p>
         <div class="doc-stage multiply" id="doc-stage">
           <p class="empty">문서 이미지를 먼저 선택해 주세요.</p>
         </div>
@@ -214,7 +221,7 @@
 
     <!-- 저장 옵션 -->
     <section class="panel export" id="export-panel" aria-labelledby="export-title">
-      <h2 id="export-title">저장하기</h2>
+      <h2 id="export-title">저장 옵션</h2>
 
       <div class="opt-group">
         <span class="field-label" id="ink-label">잉크 색</span>
@@ -259,17 +266,26 @@
       <div class="library-head">
         <h2 id="library-title">보관함</h2>
         <span class="results-count" id="library-count"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="library-clear" hidden>모두 지우기</button>
       </div>
-      <p class="hint">이 브라우저에만 저장돼요. 다른 기기에서는 보이지 않아요.</p>
+      <p class="hint">이 브라우저에만 저장돼요. 다른 기기에서는 보이지 않고, 여러 사람이 쓰는 컴퓨터라면 다 쓴 뒤 '모두 지우기'를 눌러 주세요.</p>
       <div class="library-grid" id="library-grid">
         <p class="empty">저장한 서명·도장이 여기에 모여요.</p>
       </div>
     </section>
 
-    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <div class="quickbar" id="quickbar" hidden>
+      <div class="quickbar-thumb checker" aria-hidden="true"></div>
+      <button type="button" class="btn btn-primary" id="quick-download">PNG 다운로드</button>
+      <button type="button" class="btn btn-ghost" id="quick-more">옵션</button>
+    </div>
+
+    <p class="sr" id="announce" aria-live="polite"></p>
+    <div class="status" id="status" role="status" aria-live="polite"><span id="status-text"></span><button type="button" id="status-action" hidden></button></div>
 
     <footer class="site-footer">
-      <p>모든 이미지는 이 브라우저 안에서만 만들어지고 서버로 보내지 않아요.</p>
+      <p>모든 이미지는 이 브라우저 안에서만 만들어지고 서버로 보내지 않아요. 글꼴은 Google Fonts에서 받아요.</p>
+      <p>만든 서명·도장은 이미지일 뿐, 인감이나 공인 전자서명의 효력은 없어요.</p>
     </footer>
   </main>
 

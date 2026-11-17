@@ -68,8 +68,13 @@ export function canCopyImage() {
   return Boolean(window.isSecureContext && navigator.clipboard?.write && window.ClipboardItem);
 }
 
-export async function copyBlob(blob) {
-  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+/**
+ * Safari 는 사용자가 누른 직후(같은 이벤트 안)에 clipboard.write 를 불러야 허용한다.
+ * 그래서 PNG 를 다 만든 뒤가 아니라, 만드는 중인 Promise 를 ClipboardItem 에 바로 넘긴다.
+ * @param {Promise<Blob>|Blob} blobOrPromise
+ */
+export function copyBlob(blobOrPromise) {
+  return navigator.clipboard.write([new ClipboardItem({ 'image/png': Promise.resolve(blobOrPromise) })]);
 }
 
 /** 렌더 결과를 최종 PNG 캔버스로 만든다 */

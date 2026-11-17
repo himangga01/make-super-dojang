@@ -53,6 +53,7 @@ export const STAMP_SHAPES = [
  * @param {object} o
  * @param {'ko'|'en'} o.lang
  * @param {string[]} o.chars 한글 도장 글자('인' 포함 가능)
+ * @param {string[]} [o.baseChars] '인'을 붙이기 전 이름 글자 (둘레글자·날짜 도장용)
  * @param {string} o.text 원래 이름
  * @param {object} o.shape STAMP_SHAPES 항목
  * @param {object} o.font
@@ -70,7 +71,8 @@ export function renderStamp(o) {
   if (o.shape.special === 'ring') canvas = drawRing(o);
   else if (o.shape.special === 'date') canvas = drawDate(o);
   else canvas = drawFramed(o);
-  if (o.bleed) canvas = applyBleed(canvas, o.mult ?? 1);
+  // 음각은 번짐을 채운 면에만 준다 (글자를 지운 뒤에 번지면 흰 글자가 메워진다). drawFramed 에서 처리
+  if (o.bleed && !o.shape.inverted) canvas = applyBleed(canvas, o.mult ?? 1);
   if (o.texture) applyTexture(canvas, hashString(`${o.shape.id}|${o.font.family}|${o.text}`));
   if (o.rotation) canvas = rotateCanvas(canvas, o.rotation);
   return canvas;
@@ -78,7 +80,7 @@ export function renderStamp(o) {
 
 // ───────────── 테두리 있는 기본 도장 ─────────────
 
-function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink, mult = 1 }) {
+function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink, bleed = false, mult = 1 }) {
   const S = BASE * mult;
   const content = lang === 'ko' ? koContent(chars, shape.layout) : enContent(text, shape.layout);
   const { W, H } = frameSize(shape, S, lang, content);
@@ -97,6 +99,11 @@ function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink,
   if (shape.inverted) {
     tracePath(ctx, shape, cx, cy, W, H);
     ctx.fill();
+    if (bleed) {
+      const bled = applyBleed(canvas, mult);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(bled, 0, 0);
+    }
   } else if (border > 0) {
     ctx.lineWidth = border;
     if (shape.dotted) {
@@ -134,12 +141,14 @@ function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink,
     const grid = lang === 'ko' ? content : { cols: 1, rows: content.lines.length };
     drawDividers(ctx, shape, cx, cy, cw, chh, area, grid, thin);
   }
+  // 칸 나눔선이 있으면 글자를 칸 안쪽으로 더 들이고, 마지막 줄을 가운데로 모으지 않는다 (선과 겹치지 않게)
+  const fill = shape.dividers ? 0.82 : 0.9;
   ctx.font = fontString(font, MEASURE_PX);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   if (lang === 'ko') {
     const gridOrder = shape.layout === 'row' ? 'horizontal' : order;
-    drawCharGrid(ctx, { chars, cols: content.cols, rows: content.rows, order: gridOrder, cx, cy, w: area.w, h: area.h });
+    drawCharGrid(ctx, { chars, cols: content.cols, rows: content.rows, order: gridOrder, cx, cy, w: area.w, h: area.h, fill, centerLastRow: !shape.dividers });
   } else {
     drawLines(ctx, content.lines, cx, cy, area.w, area.h);
   }
@@ -155,7 +164,8 @@ function koContent(chars, layout) {
 /** 영문은 글자 칸 대신 줄 단위로 배치한다 */
 function enContent(text, layout) {
   const label = text.toUpperCase().trim();
-  if (layout === 'row') return { lines: [label], cols: 3, rows: 1, len: label.length };
+  // 한 줄 배치는 글자 수만큼 가로로 긴 영역을 쓴다 (고정 비율이면 긴 타원에서 가운데만 쓴다)
+  if (layout === 'row') return { lines: [label], cols: clamp(label.length * 0.5, 2, 7), rows: 1, len: label.length };
   let words = label.split(/\s+/).filter(Boolean);
   if (words.length > 3) {
     const half = Math.ceil(words.length / 2);
@@ -282,11 +292,12 @@ function drawDividers(ctx, shape, cx, cy, w, h, area, content, width) {
     ctx.stroke();
     ctx.clip();
   }
+  // 원은 안쪽 원으로 잘라 내고, 사각은 테두리 안쪽 끝까지 긋는다
   const ext = shape.outline === 'ellipse' ? Math.max(w, h) : 0;
-  const x0 = cx - (shape.outline === 'ellipse' ? ext : area.w / 2);
-  const x1 = cx + (shape.outline === 'ellipse' ? ext : area.w / 2);
-  const y0 = cy - (shape.outline === 'ellipse' ? ext : area.h / 2);
-  const y1 = cy + (shape.outline === 'ellipse' ? ext : area.h / 2);
+  const x0 = cx - (shape.outline === 'ellipse' ? ext : w / 2);
+  const x1 = cx + (shape.outline === 'ellipse' ? ext : w / 2);
+  const y0 = cy - (shape.outline === 'ellipse' ? ext : h / 2);
+  const y1 = cy + (shape.outline === 'ellipse' ? ext : h / 2);
   ctx.beginPath();
   for (let c = 1; c < cols; c++) {
     const x = cx - area.w / 2 + (area.w / cols) * c;
@@ -302,7 +313,7 @@ function drawDividers(ctx, shape, cx, cy, w, h, area, content, width) {
   ctx.restore();
 }
 
-function drawCharGrid(ctx, { chars, cols, rows, order, cx, cy, w, h }) {
+function drawCharGrid(ctx, { chars, cols, rows, order, cx, cy, w, h, fill = 0.9, centerLastRow = true }) {
   const cw = w / cols;
   const ch = h / rows;
   const cells = cellOrder(chars.length, cols, rows, order);
@@ -310,18 +321,43 @@ function drawCharGrid(ctx, { chars, cols, rows, order, cx, cy, w, h }) {
   chars.forEach((c, i) => {
     const { col, row } = cells[i];
     let x0 = cx - w / 2 + col * cw;
-    if (order === 'horizontal' && row === rows - 1 && lastRowCount < cols) {
+    if (centerLastRow && order === 'horizontal' && row === rows - 1 && lastRowCount < cols) {
       x0 += ((cols - lastRowCount) * cw) / 2;
     }
     const y0 = cy - h / 2 + row * ch;
-    drawFittedGlyph(ctx, c, x0 + cw / 2, y0 + ch / 2, cw * 0.94, ch * 0.94);
+    // 칸을 꽉 채우면 굵은 글꼴에서 글자 사이가 글자 안 간격보다 좁아져 음절 경계가 흐려진다
+    drawFittedGlyph(ctx, c, x0 + cw / 2, y0 + ch / 2, cw * fill, ch * fill);
   });
 }
 
 function drawLines(ctx, lines, cx, cy, w, h) {
-  const lh = h / lines.length;
-  lines.forEach((line, i) => {
-    drawFittedGlyph(ctx, line, cx, cy - h / 2 + lh * (i + 0.5), w, lh * 0.84, 0.45, 1.5);
+  // 줄마다 따로 맞추면 짧은 줄만 크게 늘어나 높이가 들쭉날쭉해진다. 세로 배율은 모든 줄이 같게 한다
+  const ms = lines.map((line) => {
+    const m = ctx.measureText(line);
+    const left = m.actualBoundingBoxLeft ?? 0;
+    const right = m.actualBoundingBoxRight ?? m.width;
+    return { left, right, gw: left + right };
+  });
+  const cap = MEASURE_PX * 0.72; // 대문자 높이 근사: 줄 높이를 글자마다 다르게 재지 않도록 고정
+  const gap = 0.22; // 줄 사이 (글자 높이 대비)
+  const n = lines.length;
+  let sy = h / (cap * (n + gap * (n - 1)));
+  // 가로 배율은 줄마다 다르되 세로 배율의 0.45~1.5배 안에서. 폭이 모자라면 세로 배율을 낮춘다
+  for (const m of ms) {
+    const sxNeeded = w / m.gw;
+    if (sxNeeded < sy * 0.45) sy = sxNeeded / 0.45;
+  }
+  const lineH = cap * sy;
+  const total = lineH * n + lineH * gap * (n - 1);
+  ms.forEach((m, i) => {
+    const sx = Math.min(w / m.gw, sy * 1.5);
+    const yCenter = cy - total / 2 + lineH / 2 + i * lineH * (1 + gap);
+    ctx.save();
+    ctx.translate(cx, yCenter);
+    ctx.scale(sx, sy);
+    // 대문자 기준선: 글자 높이의 가운데가 줄 가운데에 오도록
+    ctx.fillText(lines[i], (m.left - m.right) / 2, cap / 2);
+    ctx.restore();
   });
 }
 
@@ -342,7 +378,7 @@ function drawFittedGlyph(ctx, text, cx, cy, cw, ch, minAspect, maxAspect) {
 
 // ───────────── 둘레글자 원 ─────────────
 
-function drawRing({ lang, chars, text, font, ink, mult = 1 }) {
+function drawRing({ lang, chars, baseChars, text, font, ink, mult = 1 }) {
   const S = BASE * mult;
   const border = Math.max(2, S * 0.03);
   const canvas = makeCanvas(S + border * 2.4, S + border * 2.4);
@@ -363,7 +399,8 @@ function drawRing({ lang, chars, text, font, ink, mult = 1 }) {
   ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
   ctx.stroke();
 
-  const name = lang === 'ko' ? chars.filter((c, i) => !(c === '인' && i === chars.length - 1)).join('') : text.toUpperCase().trim();
+  // 이름이 원래 '인'으로 끝나면(지인, 수인…) 지우면 안 되므로 붙이기 전 글자를 쓴다
+  const name = lang === 'ko' ? (baseChars ?? chars).join('') : text.toUpperCase().trim();
   drawCircularText(ctx, {
     unit: lang === 'ko' ? `${name} ★ ` : `${name} ★ `,
     font, cx, cy, mid: (R - border / 2 + innerR) / 2, band: R - border / 2 - innerR,
@@ -383,16 +420,18 @@ function drawRing({ lang, chars, text, font, ink, mult = 1 }) {
 
 /** 원을 따라 글자를 고르게 두른다. 짧은 이름은 반복해 원을 채운다 */
 function drawCircularText(ctx, { unit, font, cx, cy, mid, band }) {
-  let px = band * 0.62;
-  ctx.font = fontString(font, px);
   const circ = 2 * Math.PI * mid;
-  let unitW = ctx.measureText(unit).width;
-  const repeat = Math.max(1, Math.min(3, Math.floor((circ * 0.9) / unitW)));
-  if (unitW * repeat > circ * 0.95) {
-    px *= (circ * 0.95) / (unitW * repeat);
-    ctx.font = fontString(font, px);
-    unitW = ctx.measureText(unit).width;
+  const maxPx = band * 0.8;
+  ctx.font = fontString(font, maxPx);
+  const unitAtMax = ctx.measureText(unit).width;
+  // 원 둘레의 약 90%를 채우도록 반복 횟수와 글자 크기를 정한다 (짧은 이름이 작게 흩어지지 않게)
+  let repeat = Math.max(1, Math.min(4, Math.round((circ * 0.9) / unitAtMax)));
+  let px = Math.min(maxPx, maxPx * ((circ * 0.9) / (unitAtMax * repeat)));
+  if (px < band * 0.45 && repeat > 1) {
+    repeat -= 1;
+    px = Math.min(maxPx, maxPx * ((circ * 0.9) / (unitAtMax * repeat)));
   }
+  ctx.font = fontString(font, px);
   const full = Array.from(unit.repeat(repeat));
   const widths = full.map((c) => ctx.measureText(c).width);
   const total = widths.reduce((s, w) => s + w, 0);
@@ -414,7 +453,7 @@ function drawCircularText(ctx, { unit, font, cx, cy, mid, band }) {
 
 // ───────────── 날짜 도장 ─────────────
 
-function drawDate({ lang, chars, text, font, ink, date, dateLabel, mult = 1 }) {
+function drawDate({ lang, chars, baseChars, text, font, ink, date, dateLabel, mult = 1 }) {
   const S = BASE * mult;
   const border = Math.max(2, S * 0.03);
   const canvas = makeCanvas(S + border * 2.4, S + border * 2.4);
@@ -456,9 +495,13 @@ function drawDate({ lang, chars, text, font, ink, date, dateLabel, mult = 1 }) {
   const boxH = regionH * 0.5;
   const yC = bh + regionH * 0.42;
   const boxW = chord(yC + boxH / 2) * 0.92;
-  const name = lang === 'ko' ? chars.filter((c, i) => !(c === '인' && i === chars.length - 1)) : null;
+  const name = lang === 'ko' ? (baseChars ?? chars) : null;
   if (lang === 'ko') {
-    drawCharGrid(ctx, { chars: name, cols: name.length, rows: 1, order: 'horizontal', cx, cy: cy - yC, w: Math.min(boxW, boxH * name.length * 1.1), h: boxH });
+    // 7자 이상은 한 줄에 넣으면 너무 작아져 두 줄로 나눈다
+    const rows = name.length > 6 ? 2 : 1;
+    const cols = Math.ceil(name.length / rows);
+    const w = Math.min(boxW, ((boxH * 1.25) / rows) * cols * 1.1);
+    drawCharGrid(ctx, { chars: name, cols, rows, order: 'horizontal', cx, cy: cy - yC, w, h: boxH * (rows === 2 ? 1.25 : 1) });
   } else {
     drawFittedGlyph(ctx, text.toUpperCase().trim(), cx, cy - yC, boxW, boxH * 0.8, 0.45, 1.4);
   }

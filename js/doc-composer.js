@@ -29,12 +29,9 @@ export class DocComposer {
     this.overlays.forEach((o) => o.el.remove());
     this.overlays = [];
     this.stage.querySelector('.doc-canvas')?.remove();
-    const view = document.createElement('canvas');
-    view.className = 'doc-canvas';
-    view.width = this.doc.width;
-    view.height = this.doc.height;
-    view.getContext('2d').drawImage(this.doc, 0, 0);
-    this.stage.prepend(view);
+    // 화면 표시용으로 따로 복사하지 않고 원본 캔버스를 그대로 보여 준다 (큰 문서에서 메모리 절약)
+    this.doc.className = 'doc-canvas';
+    this.stage.prepend(this.doc);
     this.stage.classList.add('has-doc');
     this.layout();
     this.onChange();
@@ -46,7 +43,7 @@ export class DocComposer {
   }
 
   /** @param {HTMLCanvasElement} canvas 투명 배경 서명·도장 */
-  add(canvas, { widthRatio = 0.28 } = {}) {
+  add(canvas, { widthRatio = 0.28, label = '서명' } = {}) {
     if (!this.doc) return;
     const w = this.doc.width * widthRatio;
     const h = (w * canvas.height) / canvas.width;
@@ -60,12 +57,16 @@ export class DocComposer {
       x: clamp(this.doc.width * (0.55 + shift) - w / 2, 0, this.doc.width - w),
       y: clamp(this.doc.height * (0.7 + shift) - h / 2, 0, this.doc.height - h),
     };
+    o.label = label;
     o.el = this.#createElement(o);
     this.overlays.push(o);
     this.stage.append(o.el);
     this.#select(o);
     this.layout();
+    // 화면 밖에 놓이면 아무 일도 안 일어난 것처럼 보이므로 보이는 곳으로 옮긴다
+    o.el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
     this.onChange();
+    return o;
   }
 
   setMultiply(on) {
@@ -89,6 +90,15 @@ export class DocComposer {
         height: `${o.h * k}px`,
       });
     }
+  }
+
+  /** 올린 항목이 문서 밖으로 완전히 나가지 않게 위치와 크기를 묶어 둔다 */
+  #clampOverlay(o) {
+    const ratio = o.h / o.w;
+    o.w = clamp(o.w, this.doc.width * 0.04, this.doc.width * 1.2);
+    o.h = o.w * ratio;
+    o.x = clamp(o.x, -o.w * 0.5, this.doc.width - o.w * 0.5);
+    o.y = clamp(o.y, -o.h * 0.5, this.doc.height - o.h * 0.5);
   }
 
   /** 원본 해상도로 합성한 캔버스 */
@@ -115,14 +125,14 @@ export class DocComposer {
     el.className = 'overlay';
     el.tabIndex = 0;
     el.setAttribute('role', 'group');
-    el.setAttribute('aria-label', '문서에 올린 서명. 끌어서 옮기고, 모서리로 크기를 바꾸세요. 방향키로 옮길 수 있어요.');
+    el.setAttribute('aria-label', `문서에 올린 ${o.label}. 끌어서 옮기고, 모서리로 크기를 바꾸세요. 방향키로 옮기고 +, - 로 크기를 바꿀 수 있어요.`);
     o.canvas.className = 'overlay-img';
     el.append(o.canvas);
 
     const del = document.createElement('button');
     del.type = 'button';
     del.className = 'overlay-del';
-    del.setAttribute('aria-label', '빼기');
+    del.setAttribute('aria-label', `${o.label} 빼기`);
     del.textContent = '×';
     del.addEventListener('pointerdown', (e) => e.stopPropagation());
     del.addEventListener('click', () => {
@@ -165,11 +175,15 @@ export class DocComposer {
       e.stopPropagation();
       this.#select(o);
       handle.setPointerCapture(e.pointerId);
-      const start = { x: e.clientX, w: o.w };
+      const start = { x: e.clientX, y: e.clientY, w: o.w };
       const ratio = o.h / o.w;
       const move = (ev) => {
         const k = this.scale;
-        o.w = clamp(start.w + (ev.clientX - start.x) / k, this.doc.width * 0.04, this.doc.width * 1.2);
+        // 가로·세로 중 더 크게 움직인 쪽을 따른다 (아래로만 끌어도 커지도록)
+        const dx = (ev.clientX - start.x) / k;
+        const dy = (ev.clientY - start.y) / k / ratio;
+        const d = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
+        o.w = clamp(start.w + d, this.doc.width * 0.04, this.doc.width * 1.2);
         o.h = o.w * ratio;
         this.layout();
       };
@@ -199,6 +213,7 @@ export class DocComposer {
         del.click();
         return;
       } else return;
+      this.#clampOverlay(o);
       this.layout();
     });
     return el;

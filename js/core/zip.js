@@ -27,6 +27,18 @@ function dosTime(date) {
  * @returns {Uint8Array}
  */
 export function createZip(files, date = new Date()) {
+  const parts = createZipParts(files, date);
+  const out = new Uint8Array(parts.reduce((s, b) => s + b.length, 0));
+  let p = 0;
+  for (const b of parts) {
+    out.set(b, p);
+    p += b.length;
+  }
+  return out;
+}
+
+/** ZIP 을 이루는 바이트 조각들. new Blob(parts) 로 넘기면 큰 배열을 한 번 더 복사하지 않는다 */
+export function createZipParts(files, date = new Date()) {
   const enc = new TextEncoder();
   const { time, day } = dosTime(date);
   const locals = [];
@@ -78,14 +90,7 @@ export function createZip(files, date = new Date()) {
   end.setUint32(12, centralSize, true);
   end.setUint32(16, offset, true);
 
-  const parts = [...locals, ...centrals, new Uint8Array(end.buffer)];
-  const out = new Uint8Array(parts.reduce((s, b) => s + b.length, 0));
-  let p = 0;
-  for (const b of parts) {
-    out.set(b, p);
-    p += b.length;
-  }
-  return out;
+  return [...locals, ...centrals, new Uint8Array(end.buffer)];
 }
 
 /** 같은 이름이 있으면 (2), (3)… 을 붙인다 */

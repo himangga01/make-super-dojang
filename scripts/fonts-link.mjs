@@ -20,7 +20,7 @@ const url = `https://fonts.googleapis.com/css2?${families.join('&')}&display=blo
 
 const file = new URL('../index.html', import.meta.url);
 const html = readFileSync(file, 'utf8');
-const next = html.replace(/<link rel="stylesheet" href="(@@FONTS@@|https:\/\/fonts\.googleapis\.com\/css2\?[^"]*)">/, `<link rel="stylesheet" href="${url}">`);
+const next = html.replace(/(<link id="font-css" rel="stylesheet" href=")[^"]*(")/, `$1${url}$2`);
 if (next === html && !html.includes(url)) throw new Error('index.html 에서 글꼴 링크를 찾지 못했어요.');
 writeFileSync(file, next);
 console.log(`글꼴 ${families.length}종 링크를 갱신했어요.`);

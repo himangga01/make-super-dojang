@@ -1,10 +1,13 @@
 // 사진 속 서명에서 배경을 지우는 순수 함수 (DOM 없음)
 
-/** RGBA → 밝기(0~255) */
+/** RGBA → 밝기(0~255). 투명한 부분은 흰색으로 본다 */
 export function toGray(rgba, w, h) {
   const g = new Uint8ClampedArray(w * h);
   for (let i = 0, j = 0; j < g.length; i += 4, j++) {
-    g[j] = (rgba[i] * 299 + rgba[i + 1] * 587 + rgba[i + 2] * 114) / 1000;
+    const lum = (rgba[i] * 299 + rgba[i + 1] * 587 + rgba[i + 2] * 114) / 1000;
+    // 투명한 픽셀은 (0,0,0,0) 이라 그대로 재면 잉크로 오인한다. 흰 종이 위에 얹어 잰다
+    const a = rgba[i + 3] / 255;
+    g[j] = lum * a + 255 * (1 - a);
   }
   return g;
 }

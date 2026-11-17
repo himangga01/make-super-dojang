@@ -1,30 +1,41 @@
 // 종이에 쓴 서명 사진 → 배경이 투명한 서명
 import { extractSignatureMask, maskBounds } from './core/image.js';
 
-/** 이미지 파일을 읽어 긴 변이 maxSide 이하인 캔버스로 만든다 (사진 회전 정보 반영) */
+export const MAX_PIXELS = 50_000_000; // 이보다 큰 이미지는 휴대폰에서 메모리가 모자라 탭이 꺼질 수 있다
+
+/**
+ * 이미지 파일을 읽어 긴 변이 maxSide 이하인 캔버스로 만든다.
+ * 먼저 크기만 확인해 지나치게 큰 이미지는 풀기 전에 거절한다. 사진 회전 정보(EXIF)는 브라우저가 반영한다.
+ */
 export async function loadImageFile(file, maxSide = 1600) {
-  let source;
+  const url = URL.createObjectURL(file);
   try {
-    source = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  } catch {
-    source = await new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => resolve(img);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+    await new Promise((resolve, reject) => {
+      img.onload = resolve;
       img.onerror = () => reject(new Error('이미지를 열 수 없어요.'));
-      img.src = url;
     });
+    const sw = img.naturalWidth;
+    const sh = img.naturalHeight;
+    if (!sw || !sh) throw new Error('이미지를 열 수 없어요.');
+    if (sw * sh > MAX_PIXELS) {
+      const err = new Error(`이미지가 너무 커요 (${sw}×${sh}). 5천만 화소 이하로 줄여 주세요.`);
+      err.userMessage = err.message;
+      throw err;
+    }
+    const k = Math.min(1, maxSide / Math.max(sw, sh));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sw * k));
+    canvas.height = Math.max(1, Math.round(sh * k));
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
   }
-  const sw = source.width;
-  const sh = source.height;
-  const k = Math.min(1, maxSide / Math.max(sw, sh));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(sw * k));
-  canvas.height = Math.max(1, Math.round(sh * k));
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
-  source.close?.();
-  return canvas;
 }
 
 export class PhotoSignature {

@@ -53,3 +53,12 @@ export async function addItem({ kind, name, label, blob }) {
 export function removeItem(id) {
   return tx('readwrite', (s) => s.delete(id));
 }
+
+/** 삭제를 되돌릴 때: 지운 항목을 그대로 다시 넣는다 */
+export function restoreItem(item) {
+  return tx('readwrite', (s) => s.put(item));
+}
+
+export function clearItems() {
+  return tx('readwrite', (s) => s.clear());
+}

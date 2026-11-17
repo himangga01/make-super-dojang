@@ -59,11 +59,12 @@ export function isHangulSyllable(ch) {
 
 /** 파일 이름에 쓸 수 없는 문자를 지운다 */
 export function sanitizeFilePart(text) {
-  return text
-    .replace(/[\\/:*?"<>|\u0000-\u001F]/g, '')
+  const cleaned = text
+    // 금지 문자, 제어 문자, 글자 방향을 뒤집는 문자(U+202E 등)와 폭 없는 문자
+    .replace(/[\\/:*?"<>|\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
     .replace(/\s+/g, '_')
-    .replace(/^\.+/, '')
-    .slice(0, 40);
+    .replace(/^\.+/, '');
+  return Array.from(cleaned).slice(0, 40).join(''); // 이모지가 반쪽 나지 않게 글자 단위로 자른다
 }
 
 export function formatDate(date) {

@@ -74,7 +74,31 @@ export function fontString(font, px) {
   return `${font.weight} ${px}px "${font.family}", sans-serif`;
 }
 
+let cssReady = null;
+
+/**
+ * 글꼴 CSS(@font-face 선언 약 2,000개, 1.3MB)는 첫 화면 표시를 늦추지 않도록 media="print" 로 받아 둔다.
+ * 처음 글꼴이 필요할 때 켜고, 다 읽힐 때까지 기다린다.
+ */
+export function ensureFontCss() {
+  if (cssReady) return cssReady;
+  const link = document.getElementById('font-css');
+  if (!link) return (cssReady = Promise.resolve());
+  cssReady = new Promise((resolve) => {
+    const done = () => resolve();
+    if (link.sheet && link.media === 'all') return done();
+    link.addEventListener('load', done, { once: true });
+    link.addEventListener('error', done, { once: true }); // 실패해도 대체 글꼴로 계속한다
+    link.media = 'all';
+    // 이미 받아 둔 경우에는 load 가 다시 오지 않을 수 있다
+    if (link.sheet) requestAnimationFrame(() => (link.sheet ? done() : null));
+    setTimeout(done, 8000); // 네트워크가 멈춰도 대체 글꼴로라도 진행한다
+  });
+  return cssReady;
+}
+
 const loaded = new Map();
+const pending = new Map();
 
 /**
  * 글꼴과 글자를 미리 불러온다. 한글 글꼴은 글자 범위별로 나뉘어 있어 text 를 함께 넘겨야
@@ -84,16 +108,38 @@ export async function loadFont(font, text, timeoutMs = 5000) {
   const key = `${font.family}|${font.weight}|${text}`;
   if (loaded.has(key)) return loaded.get(key);
   if (!document.fonts?.load) return true;
+  await ensureFontCss();
 
-  const spec = `${font.weight} 48px "${font.family}"`;
-  const task = document.fonts
-    .load(spec, text)
-    .then((faces) => faces.length > 0)
-    .catch(() => false);
+  const task = fontTask(font, text, key);
   const timeout = new Promise((resolve) => setTimeout(() => resolve(false), timeoutMs));
-  const ok = await Promise.race([task, timeout]);
-  if (ok) loaded.set(key, ok); // 실패는 저장하지 않아 다음에 다시 시도한다
-  return ok;
+  return Promise.race([task, timeout]);
+}
+
+/**
+ * 시간 안에 못 받은 글꼴이 나중에 도착하면 알려 준다. 카드를 대체 글꼴로 그린 뒤 다시 그릴 때 쓴다.
+ * @returns {Promise<boolean>}
+ */
+export function whenFontLoaded(font, text) {
+  const key = `${font.family}|${font.weight}|${text}`;
+  if (loaded.has(key)) return Promise.resolve(loaded.get(key));
+  return fontTask(font, text, key);
+}
+
+function fontTask(font, text, key) {
+  if (!pending.has(key)) {
+    const spec = `${font.weight} 48px "${font.family}"`;
+    const task = document.fonts
+      .load(spec, text)
+      .then((faces) => faces.length > 0)
+      .catch(() => false)
+      .then((ok) => {
+        pending.delete(key);
+        if (ok) loaded.set(key, ok); // 실패는 저장하지 않아 다음에 다시 시도한다
+        return ok;
+      });
+    pending.set(key, task);
+  }
+  return pending.get(key);
 }
 
 export function loadFonts(fonts, text) {

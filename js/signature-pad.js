@@ -98,6 +98,10 @@ export class SignaturePad {
 
   #down(e) {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    // 그리는 중에 두 번째 손가락이나 손바닥이 닿으면 무시한다
+    if (this.current && e.pointerId !== this.pointerId) return;
+    if (!e.isPrimary && e.pointerType === 'touch') return;
+    this.pointerId = e.pointerId;
     e.preventDefault();
     this.canvas.setPointerCapture(e.pointerId);
     const p = this.#point(e, null);
@@ -110,7 +114,7 @@ export class SignaturePad {
   }
 
   #move(e) {
-    if (!this.current) return;
+    if (!this.current || e.pointerId !== this.pointerId) return;
     e.preventDefault();
     const events = e.getCoalescedEvents?.() ?? [e];
     for (const ev of events.length ? events : [e]) {
@@ -122,8 +126,8 @@ export class SignaturePad {
     }
   }
 
-  #up() {
-    if (!this.current) return;
+  #up(e) {
+    if (!this.current || e.pointerId !== this.pointerId) return;
     const s = this.current;
     this.current = null;
     if (s.length > 1) {

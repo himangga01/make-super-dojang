@@ -129,3 +129,34 @@ test('도장 모양 20가지 이상, 분류가 모두 유효하다', async () =>
   for (const s of STAMP_SHAPES) assert.ok(cats.has(s.cat), `${s.id}: ${s.cat}`);
   for (const c of STAMP_CATEGORIES) if (c.id !== 'all') assert.ok(STAMP_SHAPES.some((s) => s.cat === c.id), `빈 분류 ${c.id}`);
 });
+
+test('검토 1차 회귀: 파일 이름의 방향 제어 문자 제거와 글자 단위 자르기', async () => {
+  const { sanitizeFilePart, buildFileName } = await import('../js/core/text.js');
+  assert.equal(buildFileName('stamp', 'a‮gpj.exe', new Date(2026, 0, 1)), '도장_agpj.exe_20260101.png');
+  const cut = sanitizeFilePart('가'.repeat(39) + '😀😀');
+  assert.equal(Array.from(cut).length, 40);
+  assert.ok(!cut.includes('�') && /😀$/.test(cut));
+});
+
+test('검토 1차 회귀: 투명 PNG 는 흰 종이로 본다', async () => {
+  const { toGray, extractSignatureMask, maskBounds } = await import('../js/core/image.js');
+  assert.deepEqual(Array.from(toGray(new Uint8ClampedArray([0, 0, 0, 0, 0, 0, 0, 255]), 2, 1)), [255, 0]);
+  const w = 100;
+  const h = 50;
+  const rgba = new Uint8ClampedArray(w * h * 4); // 전부 투명
+  for (let x = 20; x < 80; x++) rgba.set([0, 0, 0, 255], (25 * w + x) * 4); // 가로 획
+  const { alpha } = extractSignatureMask(rgba, w, h);
+  const b = maskBounds(alpha, w, h, 128);
+  assert.ok(b && b.y === 25 && b.h === 1 && b.x === 20, JSON.stringify(b));
+});
+
+test('검토 1차 회귀: ZIP 조각을 이어 붙이면 createZip 과 같다', async () => {
+  const { createZip, createZipParts } = await import('../js/core/zip.js');
+  const files = [{ name: 'a.png', data: new Uint8Array([9, 8, 7]) }];
+  const d = new Date(2026, 0, 1);
+  const parts = createZipParts(files, d);
+  const joined = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
+  let o = 0;
+  for (const p of parts) { joined.set(p, o); o += p.length; }
+  assert.deepEqual(joined, createZip(files, d));
+});

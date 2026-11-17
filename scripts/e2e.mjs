@@ -200,7 +200,8 @@ try {
   await page.locator('#library-grid [data-act="doc"]').first().click();
   const libAdded = await page.waitForFunction(() => document.querySelectorAll('#doc-stage .overlay').length === 3, null, { timeout: 5000 }).then(() => true, () => false);
   check(libAdded, '보관함 항목 문서에 올리기');
-  // 끌어서 옮기기
+  // 끌어서 옮기기 (넣을 때 화면이 부드럽게 스크롤되므로 멈출 때까지 기다린다)
+  await page.waitForTimeout(900);
   const ov = await page.locator('#doc-stage .overlay').first().boundingBox();
   await page.mouse.move(ov.x + ov.width / 2, ov.y + ov.height / 2);
   await page.mouse.down();

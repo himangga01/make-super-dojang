@@ -29,6 +29,8 @@ export function transformText(text, transform) {
  * @param {number} [o.mult] 크기 배율
  * @returns {HTMLCanvasElement} 여백을 자른 투명 배경 캔버스
  */
+const MAX_CANVAS_AREA = 16_000_000; // iOS Safari 캔버스 한도(약 1,670만 화소)보다 조금 작게
+
 export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0, mult = 1 }) {
   const font = signatureFont(style.font);
   const px = BASE_FONT_PX * font.sizeFactor * (style.size ?? 1) * mult;
@@ -42,12 +44,29 @@ export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0,
   const cx0 = (b0.x0 + b0.x1) / 2;
   const cy0 = (b0.y0 + b0.y1) / 2;
 
-  const slant = (style.slant ?? 0) + slantAdjust;
+  // 세로 서명은 기둥 전체가 기울면 옆으로 크게 쓰러지므로 기울기를 주지 않는다
+  const slant = style.vertical ? 0 : (style.slant ?? 0) + slantAdjust;
   const tan = Math.tan((slant * Math.PI) / 180);
   const rot = ((style.rotate ?? 0) * Math.PI) / 180;
 
-  const W = Math.ceil(bw * 1.3 + bh * (0.6 + Math.abs(tan)) + px * 1.8);
-  const H = Math.ceil(bh * 1.4 + bw * Math.abs(Math.sin(rot)) + px * 1.8);
+  // 캔버스 크기: 기울인 글자 상자 + 꾸밈이 뻗는 거리만큼만 잡고, 회전하면 돌린 상자를 감싼다.
+  // (넉넉하게 잡으면 세로 서명·긴 이름에서 캔버스가 수천만 화소가 되어 iOS 에서 그려지지 않는다)
+  const reach = px * 0.85;
+  let ex = bw / 2 + (Math.abs(tan) * bh) / 2 + reach;
+  let ey = bh / 2 + reach;
+  if (style.deco === 'circle') {
+    const r = circleRadii({ x0: -bw / 2, x1: bw / 2, y0: -bh / 2, y1: bh / 2, tan }, px);
+    ex = Math.max(ex, r.rx * 1.08 + px * 0.1);
+    ey = Math.max(ey, r.ry * 1.08 + px * 0.1);
+  }
+  const cos = Math.abs(Math.cos(rot));
+  const sin = Math.abs(Math.sin(rot));
+  const W = Math.ceil(2 * (ex * cos + ey * sin));
+  const H = Math.ceil(2 * (ex * sin + ey * cos));
+  if (W * H > MAX_CANVAS_AREA) {
+    // 아주 긴 이름을 고해상도로 만들면 한도를 넘어 아무것도 안 그려지므로 그 안에 들어오게 줄인다
+    return renderSignature({ text, style, ink, slantAdjust, weight, mult: mult * Math.sqrt(MAX_CANVAS_AREA / (W * H)) * 0.98 });
+  }
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, W);
   canvas.height = Math.max(1, H);
@@ -82,7 +101,18 @@ export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0,
     DECOS[style.deco]?.(ctx, box, px, maxW, ink, rand);
   }
 
-  return trimCanvas(canvas, 0.04) ?? canvas;
+  const out = trimCanvas(canvas, 0.04) ?? canvas;
+  if (out !== canvas) canvas.width = canvas.height = 0; // 큰 임시 캔버스를 바로 놓아 준다 (Safari 메모리 한도)
+  return out;
+}
+
+/** 동그라미 꾸밈: 기울인 글자 상자의 네 모서리가 안에 들어가는 타원 */
+function circleRadii(b, px) {
+  const hw = (b.x1 - b.x0) / 2 + (Math.abs(b.tan) * (b.y1 - b.y0)) / 2;
+  const hh = (b.y1 - b.y0) / 2;
+  const ry = hh + px * 0.3;
+  const rx = hw / Math.sqrt(1 - (hh / ry) ** 2) + px * 0.15;
+  return { rx, ry };
 }
 
 /** 글자 배치. 간격·첫 글자 강조·세로쓰기가 없으면 한 번에 그려 필기체 이음과 자간을 살린다 */
@@ -176,11 +206,12 @@ const DECOS = {
     const y = b.y1;
     const L = b.x1 - b.x0;
     const s = shift(b, y);
+    // 마지막 글자를 지나기 전까지는 기준선 아래에 머물렀다가 글자 뒤에서 올라간다
     const pts = cubicPts(
       { x: b.x0 + s, y: y + px * 0.06 },
       { x: b.x0 + s + L * (0.3 + rand() * 0.1), y: y + px * (0.26 + rand() * 0.08) },
-      { x: b.x0 + s + L * (0.68 + rand() * 0.08), y: y - px * 0.02 },
-      { x: b.x1 + s + px * 0.3, y: y - px * (0.2 + rand() * 0.1) },
+      { x: b.x0 + s + L * (0.68 + rand() * 0.08), y: y + px * 0.1 },
+      { x: b.x1 + s + px * 0.45, y: y - px * (0.05 + rand() * 0.07) },
     );
     taper(ctx, pts, maxW, ink);
   },
@@ -231,8 +262,7 @@ const DECOS = {
   },
 
   circle(ctx, b, px, maxW, ink, rand) {
-    const rx = (b.x1 - b.x0) / 2 + px * 0.38 + Math.abs(b.tan) * (b.y1 - b.y0) * 0.5;
-    const ry = (b.y1 - b.y0) / 2 + px * 0.3;
+    const { rx, ry } = circleRadii(b, px);
     const start = -Math.PI * (0.9 + rand() * 0.1);
     const turns = Math.PI * 2 * 1.08;
     const pts = Array.from({ length: 161 }, (_, i) => {

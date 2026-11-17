@@ -1,4 +1,4 @@
-import { STAMP_FONTS, loadFonts, signatureFont } from './fonts.js';
+import { STAMP_FONTS, loadFonts, whenFontLoaded, signatureFont } from './fonts.js';
 import { SIGNATURE_STYLES } from './signature-styles.js';
 import { SignaturePad } from './signature-pad.js';
 import { renderSignature, transformText } from './signature-gen.js';
@@ -7,7 +7,7 @@ import { finalize, toPngBlob, downloadBlob, canCopyImage, copyBlob } from './exp
 import { PhotoSignature, loadImageFile } from './photo-import.js';
 import { DocComposer } from './doc-composer.js';
 import * as library from './library.js';
-import { createZip, uniqueNames } from './core/zip.js';
+import { createZipParts, uniqueNames } from './core/zip.js';
 import {
   MAX_NAME_LENGTH, resolveLang, validateName, stampChars, buildFileName, chars, isHexColor, sanitizeFilePart, formatDate,
 } from './core/text.js';
@@ -31,6 +31,7 @@ const INK_PRESETS = {
 const DRAW_BASE_WIDTH = 1000; // 직접 서명 내보내기 기준 폭(px)
 const CARD_MULT = { sign: 0.36, stamp: 0.42 };
 const KIND_BY_TARGET = { sign: 'signature', stamp: 'stamp' };
+const KIND_LABEL = { drawing: '서명', signature: '서명', stamp: '도장' };
 
 const state = {
   tab: 'draw',
@@ -42,6 +43,10 @@ const state = {
   stamp: { items: [], selected: null, token: 0, cat: 'all' },
   drawItem: null,
   photoItem: null,
+  zipBusy: { sign: false, stamp: false },
+  previewVersion: 0,
+  shareCache: null, // { version, item, blob }
+  exportVisible: false,
   ready: false,
 };
 
@@ -64,19 +69,18 @@ function selectTab(name, focus = false) {
     composer.layout();
     updateDocButtons();
   }
-  // 한쪽에서 입력한 이름을 다른 쪽에 채워 준다
   if (name === 'sign' || name === 'stamp') {
+    // 한쪽에서 입력한 이름을 다른 쪽에 채워 준다
     const other = name === 'sign' ? 'stamp' : 'sign';
     if (!nameInput(name).value && nameInput(other).value) {
       nameInput(name).value = nameInput(other).value;
       updateCount(name);
-      generate(name);
     }
+    // 이름은 있는데 아직 만들지 않았으면 (이전에 입력한 이름 복원 포함) 이제 만든다
+    if (nameInput(name).value.trim() && !state[name].items.length) generate(name);
   }
-  if (name !== 'doc') {
-    renderInkSwatches();
-    updatePreview();
-  }
+  if (name !== 'doc') renderInkSwatches();
+  updatePreview();
 }
 
 tabs.forEach((t, i) => {
@@ -88,6 +92,28 @@ tabs.forEach((t, i) => {
     selectTab(tabs[(i + step + tabs.length) % tabs.length].dataset.tab, true);
   });
 });
+
+// ───────────── 라디오 그룹 키보드 (방향키로 이동, 선택된 것만 Tab 정지) ─────────────
+
+function enhanceRadioGroup(box) {
+  box.addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    const items = [...box.querySelectorAll('[role="radio"]')];
+    const i = items.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    const next = items[(i + step + items.length) % items.length];
+    next.focus();
+    next.click();
+  });
+}
+
+function syncRadioTabindex(box) {
+  const items = [...box.querySelectorAll('[role="radio"]')];
+  const checked = items.find((b) => b.getAttribute('aria-checked') === 'true');
+  items.forEach((b) => { b.tabIndex = b === checked || (!checked && b === items[0]) ? 0 : -1; });
+}
 
 // ───────────── 직접 서명: 그리기 ─────────────
 
@@ -106,6 +132,7 @@ function onPadChange() {
     ? null
     : { kind: 'drawing', name: '', label: '직접 서명', render: (mult) => pad.render(DRAW_BASE_WIDTH * mult, state.ink.draw) };
   if (state.tab === 'draw') updatePreview();
+  else updateDocButtons();
 }
 padCanvas.addEventListener('pointerdown', () => { $('#pad-hint').hidden = true; });
 $('#pad-undo').addEventListener('click', () => pad.undo());
@@ -125,29 +152,34 @@ $$('input[name="draw-mode"]').forEach((r) =>
 
 const photo = new PhotoSignature();
 
+/** 사진 처리 결과로 저장할 항목을 다시 정한다 (파일을 고를 때와 슬라이더를 움직일 때 모두) */
+function refreshPhotoItem() {
+  state.photoItem = photo.isEmpty
+    ? null
+    : {
+        kind: 'drawing',
+        name: '',
+        label: '사진 서명',
+        // 사진은 원본 해상도보다 크게 만들어도 선명해지지 않아 최대 2배까지만 키운다
+        exportScale: (res) => (res > 1 ? 2 : 1),
+        render: (mult) => photo.render(mult, $('#photo-keep-color').checked ? null : state.ink.draw),
+      };
+  updatePreview();
+}
+
 $('#photo-file').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   setStatus('사진에서 서명을 찾는 중…');
   try {
     photo.setImage(await loadImageFile(file));
-    if (photo.isEmpty) {
-      state.photoItem = null;
-      setStatus('서명을 찾지 못했어요. 배경 제거를 약하게 하거나 더 밝은 곳에서 찍어 주세요.', true);
-    } else {
-      state.photoItem = {
-        kind: 'drawing',
-        name: '',
-        label: '사진 서명',
-        render: (mult) => photo.render(mult, $('#photo-keep-color').checked ? null : state.ink.draw),
-      };
-      setStatus('배경을 지웠어요. 아래 미리보기를 확인하세요.');
-    }
+    refreshPhotoItem();
+    if (photo.isEmpty) setStatus('서명을 찾지 못했어요. 배경 제거를 약하게 하거나 더 밝은 곳에서 찍어 주세요.', { error: true });
+    else setStatus('배경을 지웠어요. 미리보기를 확인하세요.');
   } catch (err) {
     console.error(err);
-    setStatus('사진을 열지 못했어요. JPG나 PNG 파일인지 확인해 주세요.', true);
+    setStatus(err.userMessage ?? '사진을 열지 못했어요. JPG나 PNG 파일인지 확인해 주세요.', { error: true });
   }
-  updatePreview();
   e.target.value = '';
 });
 
@@ -155,8 +187,9 @@ let photoTimer = 0;
 $('#photo-offset').addEventListener('input', (e) => {
   clearTimeout(photoTimer);
   photoTimer = setTimeout(() => {
-    photo.setOffset(Number(e.target.value));
-    updatePreview();
+    // 슬라이더 오른쪽(강하게)일수록 배경을 더 지운다 = 경계값을 낮춘다
+    photo.setOffset(-Number(e.target.value));
+    refreshPhotoItem();
   }, 120);
 });
 $('#photo-keep-color').addEventListener('change', updatePreview);
@@ -165,20 +198,33 @@ $('#photo-keep-color').addEventListener('change', updatePreview);
 
 const langChoice = (target) => document.querySelector(`input[name="${target}-lang"]:checked`).value;
 const nameInput = (target) => $(`#${target}-name`);
+// 한글을 치는 중에 마지막 글자가 자음·모음 하나뿐이면 아직 덜 친 것으로 본다
+const looksUnfinished = (text) => /[ㄱ-ㆎ]$/.test(text);
 
 const debounceTimers = {};
+function scheduleGenerate(target, delay = 350) {
+  clearTimeout(debounceTimers[target]);
+  debounceTimers[target] = setTimeout(() => {
+    if (!looksUnfinished(nameInput(target).value)) generate(target);
+  }, delay);
+}
+
 for (const target of ['sign', 'stamp']) {
   const input = nameInput(target);
-  input.addEventListener('input', () => {
+  input.addEventListener('input', (e) => {
     updateCount(target);
-    clearTimeout(debounceTimers[target]);
-    debounceTimers[target] = setTimeout(() => generate(target), 300);
+    // 한글 조합 중(홍→홍ㄱ→홍기…)에는 만들지 않는다. 조합이 끝나면 compositionend 에서 만든다
+    if (e.isComposing) return;
+    scheduleGenerate(target);
+  });
+  input.addEventListener('compositionend', () => {
+    updateCount(target);
+    scheduleGenerate(target, 500);
   });
   document.querySelector(`form[data-target="${target}"]`).addEventListener('submit', (e) => {
     e.preventDefault();
     clearTimeout(debounceTimers[target]);
-    input.blur(); // 모바일 키보드를 닫아 결과가 보이게 한다
-    generate(target);
+    generate(target, { focusResults: true });
   });
   $$(`input[name="${target}-lang"]`).forEach((r) => r.addEventListener('change', () => generate(target)));
 }
@@ -187,17 +233,16 @@ function updateCount(target) {
   $(`#${target}-count`).textContent = `${chars(nameInput(target).value).length}/${MAX_NAME_LENGTH}`;
 }
 
-// 서명 옵션: 글꼴은 그대로라 그림만 다시 그린다
-$('#sign-slant').addEventListener('input', () => rerenderCards('sign'));
-$('#sign-weight').addEventListener('input', () => rerenderCards('sign'));
+// 슬라이더: 움직이는 동안에는 선택한 항목 미리보기만, 손을 떼면 카드 전체를 다시 그린다 (저사양 폰 배려)
+for (const [id, target] of [['#sign-slant', 'sign'], ['#sign-weight', 'sign'], ['#stamp-rotation', 'stamp']]) {
+  $(id).addEventListener('input', () => updatePreview());
+  $(id).addEventListener('change', () => rerenderCards(target));
+}
+$('#stamp-rotation').addEventListener('input', (e) => { $('#stamp-rotation-out').textContent = `${e.target.value}°`; });
 
 // 도장 옵션
 for (const id of ['#stamp-font', '#stamp-in', '#stamp-date-label']) $(id).addEventListener('change', () => generate('stamp'));
 for (const id of ['#stamp-order', '#stamp-texture', '#stamp-bleed', '#stamp-date']) $(id).addEventListener('change', () => rerenderCards('stamp'));
-$('#stamp-rotation').addEventListener('input', (e) => {
-  $('#stamp-rotation-out').textContent = `${e.target.value}°`;
-  rerenderCards('stamp');
-});
 $('#stamp-date').value = isoDate(new Date());
 
 const catBox = $('#stamp-cats');
@@ -209,26 +254,29 @@ catBox.querySelectorAll('.chip').forEach((b) =>
   b.addEventListener('click', () => {
     state.stamp.cat = b.dataset.cat;
     catBox.querySelectorAll('.chip').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+    syncRadioTabindex(catBox);
     generate('stamp');
   }),
 );
+enhanceRadioGroup(catBox);
+syncRadioTabindex(catBox);
 
 // ───────────── 생성 ─────────────
 
-async function generate(target) {
+async function generate(target, { focusResults = false } = {}) {
   const s = state[target];
   const token = ++s.token;
   const raw = nameInput(target).value;
   const container = $(`#${target}-results`);
   saveNames();
 
-  const lang = resolveLang(langChoice(target), raw);
-  if (target === 'stamp') syncStampOptions(lang);
-
   if (!raw.trim()) {
     setResults(target, [], target === 'sign' ? '이름을 입력하면 서명 후보 24가지가 나타나요.' : `이름을 입력하면 도장 후보 ${STAMP_SHAPES.length}가지가 나타나요.`);
     return;
   }
+  const lang = resolveLang(langChoice(target), raw);
+  // 이름을 지웠을 때가 아니라 실제로 입력이 있을 때만 언어별 옵션을 바꾼다 (고른 글꼴이 초기화되지 않게)
+  if (target === 'stamp') syncStampOptions(lang);
   const v = validateName(raw, lang);
   if (!v.ok) {
     setResults(target, [], v.message, true);
@@ -239,7 +287,9 @@ async function generate(target) {
   const { specs, fonts, text } = target === 'sign' ? signatureSpecs(name, lang) : stampSpecs(name, lang);
 
   if (!container.querySelector('.card')) container.innerHTML = '<p class="empty">글꼴을 불러오는 중…</p>';
+  else container.classList.add('loading');
   const results = await loadFonts(fonts, text);
+  container.classList.remove('loading');
   if (token !== s.token) return; // 그사이 입력이 바뀌었다
   const okByFamily = new Map(fonts.map((f, i) => [f.family, results[i]]));
 
@@ -247,11 +297,25 @@ async function generate(target) {
   const items = specs.map((spec) => ({ ...spec, kind: KIND_BY_TARGET[target], name, fontOk: okByFamily.get(spec.font.family) }));
   setResults(target, items);
   selectItem(target, items.find((it) => it.id === prevId) ?? items[0] ?? null);
+  announce(`${target === 'sign' ? '서명' : '도장'} 후보 ${items.length}가지를 만들었어요.`);
+  if (focusResults) $(`#${target}-count-label`).focus(); // 모바일 키보드를 닫고 결과로 이동
+
+  // 시간 안에 못 받은 글꼴은 도착하는 대로 해당 카드를 다시 그린다
+  for (const font of fonts.filter((f) => !okByFamily.get(f.family))) {
+    whenFontLoaded(font, text).then((ok) => {
+      if (!ok || token !== s.token) return;
+      for (const it of s.items.filter((x) => x.font.family === font.family)) {
+        it.fontOk = true;
+        it.card?.querySelector('.card-warn')?.remove();
+        redrawCard(target, it);
+      }
+      if (state.tab === target) updatePreview();
+    });
+  }
 }
 
 function signatureSpecs(name, lang) {
-  const styles = SIGNATURE_STYLES[lang];
-  const specs = styles.map((style) => {
+  const specs = SIGNATURE_STYLES[lang].map((style) => {
     const font = signatureFont(style.font);
     return {
       id: style.id,
@@ -269,15 +333,15 @@ function signatureSpecs(name, lang) {
         }),
     };
   });
-  const fonts = uniqueFonts(specs.map((x) => x.font));
   const text = name + transformText(name, 'monogram') + transformText(name, 'first-initial');
-  return { specs, fonts, text };
+  return { specs, fonts: uniqueFonts(specs.map((x) => x.font)), text };
 }
 
 function stampSpecs(name, lang) {
   const fonts = STAMP_FONTS[lang];
   const chosen = fonts.find((f) => f.family === $('#stamp-font').value);
   const list = stampChars(name, { addIn: $('#stamp-in').checked, lang });
+  const baseChars = stampChars(name, { addIn: false, lang });
   const shapes = STAMP_SHAPES.filter((sh) => state.stamp.cat === 'all' || sh.cat === state.stamp.cat);
   const dateLabel = $('#stamp-date-label').value;
 
@@ -293,6 +357,7 @@ function stampSpecs(name, lang) {
         renderStamp({
           lang,
           chars: list,
+          baseChars,
           text: name,
           shape,
           font,
@@ -339,7 +404,7 @@ function setResults(target, items, message, isError = false) {
   s.items = items;
   const container = $(`#${target}-results`);
   container.innerHTML = '';
-  $(`#${target}-zip`).disabled = !items.length;
+  $(`#${target}-zip`).disabled = !items.length || state.zipBusy[target];
   $(`#${target}-count-label`).textContent = items.length ? `${items.length}가지` : '';
   if (!items.length) {
     const p = document.createElement('p');
@@ -358,14 +423,16 @@ function setResults(target, items, message, isError = false) {
     sel.type = 'button';
     sel.className = 'card-select';
     sel.setAttribute('aria-pressed', 'false');
-    sel.setAttribute('aria-label', `${item.label}, ${item.sub} 선택`);
+    sel.setAttribute('aria-label', `${item.label}, ${item.sub}`);
     sel.append(item.render(CARD_MULT[target]));
+    sel.addEventListener('click', () => selectItem(target, item));
+
+    const foot = document.createElement('div');
+    foot.className = 'card-foot';
     const label = document.createElement('span');
     label.className = 'card-label';
     label.textContent = `${item.label} · ${item.sub}`;
-    sel.append(label);
-    sel.addEventListener('click', () => selectItem(target, item));
-
+    label.setAttribute('aria-hidden', 'true');
     const dl = document.createElement('button');
     dl.type = 'button';
     dl.className = 'card-dl';
@@ -376,19 +443,30 @@ function setResults(target, items, message, isError = false) {
       selectItem(target, item);
       download(item);
     });
+    foot.append(label, dl);
 
-    card.append(sel, dl);
+    card.append(sel, foot);
     if (!item.fontOk) {
       const warn = document.createElement('span');
       warn.className = 'card-warn';
       warn.textContent = '대체 글꼴';
-      warn.title = '글꼴을 불러오지 못해 기본 글꼴로 그렸어요.';
+      warn.title = '글꼴을 아직 받지 못해 기본 글꼴로 그렸어요. 받는 대로 다시 그려요.';
       card.append(warn);
     }
     item.el = sel;
+    item.card = card;
     frag.append(card);
   }
   container.append(frag);
+}
+
+function redrawCard(target, item) {
+  const old = item.el?.querySelector('canvas');
+  if (old) {
+    const next = item.render(CARD_MULT[target]);
+    old.replaceWith(next);
+    old.width = old.height = 0;
+  }
 }
 
 /** 옵션(기울기, 잉크 색 등)만 바뀌었을 때 카드 그림만 다시 그린다 */
@@ -398,10 +476,7 @@ function rerenderCards(target) {
   rerenderQueued[target] = true;
   requestAnimationFrame(() => {
     rerenderQueued[target] = false;
-    for (const item of state[target].items) {
-      const old = item.el?.querySelector('canvas');
-      if (old) old.replaceWith(item.render(CARD_MULT[target]));
-    }
+    for (const item of state[target].items) redrawCard(target, item);
     if (state.tab === target) updatePreview();
   });
 }
@@ -430,6 +505,7 @@ function renderInkSwatches() {
     `<label class="swatch custom${isPreset ? '' : ' active'}" title="직접 고르기"><input type="color" value="${isPreset ? '#7a3cff' : current}" aria-label="잉크 색 직접 고르기"></label>`;
   box.querySelectorAll('[data-ink]').forEach((b) => b.addEventListener('click', () => setInk(b.dataset.ink)));
   box.querySelector('input[type="color"]').addEventListener('input', (e) => setInk(e.target.value, true));
+  syncRadioTabindex(box);
 }
 
 function setInk(color, custom = false) {
@@ -439,6 +515,7 @@ function setInk(color, custom = false) {
   const box = $('#ink-swatches');
   box.querySelectorAll('[data-ink]').forEach((b) => b.setAttribute('aria-checked', String(!custom && b.dataset.ink === color)));
   box.querySelector('.custom').classList.toggle('active', custom);
+  syncRadioTabindex(box);
   if (key === 'draw') {
     pad.redraw();
     updatePreview();
@@ -446,17 +523,21 @@ function setInk(color, custom = false) {
     rerenderCards(key);
   }
 }
+enhanceRadioGroup($('#ink-swatches'));
 
 const bgBox = $('#bg-swatches');
 bgBox.querySelectorAll('[data-bg]').forEach((b) =>
   b.addEventListener('click', () => setBg(b.dataset.bg === 'transparent' ? null : b.dataset.bg, b)),
 );
 $('#bg-custom').addEventListener('input', (e) => setBg(e.target.value, null));
+enhanceRadioGroup(bgBox);
+syncRadioTabindex(bgBox);
 
 function setBg(color, button) {
   state.bg = color;
   bgBox.querySelectorAll('[data-bg]').forEach((b) => b.setAttribute('aria-checked', String(b === button)));
   bgBox.querySelector('.custom').classList.toggle('active', !button);
+  syncRadioTabindex(bgBox);
   updatePreview();
 }
 
@@ -475,23 +556,37 @@ function currentItem(tab = state.tab) {
   return null;
 }
 
+const exportScale = (item) => item.exportScale?.(state.res) ?? state.res;
 const buildOutput = (item, bg = state.bg) => finalize(item.render(state.res), bg);
 
 let previewQueued = false;
 function updatePreview() {
   updateDocButtons();
+  state.previewVersion++;
   if (previewQueued) return;
   previewQueued = true;
   requestAnimationFrame(() => {
     previewQueued = false;
     const item = currentItem();
     const box = $('#preview');
-    box.querySelector('canvas')?.remove();
-    const out = item ? buildOutput(item) : null;
+    const old = box.querySelector('canvas');
+    if (old) {
+      old.remove();
+      old.width = old.height = 0;
+    }
+    // 미리보기는 화면에 220px 정도로만 보이므로 보통 해상도로 그리고, 크기 표시는 저장 배율로 계산한다
+    const out = item ? finalize(item.render(1), state.bg) : null;
     $('#preview-empty').hidden = Boolean(out);
     for (const id of ['#download', '#copy', '#share', '#save-library']) $(id).disabled = !out;
-    $('#preview-meta').textContent = out ? `${out.width} × ${out.height}px · ${state.bg ? '배경색' : '투명 배경'} PNG` : '';
-    if (out) box.append(out);
+    if (out) {
+      const k = exportScale(item) / (item.exportScale?.(1) ?? 1);
+      $('#preview-meta').textContent = `약 ${Math.round(out.width * k)} × ${Math.round(out.height * k)}px · ${state.bg ? '배경색' : '투명 배경'} PNG`;
+      box.append(out);
+    } else {
+      $('#preview-meta').textContent = '';
+    }
+    updateQuickbar(out);
+    prepareShare(item);
   });
 }
 
@@ -503,30 +598,34 @@ function emptyMessage() {
 async function outputBlob(item) {
   const out = item && buildOutput(item);
   if (!out) throw new Error('empty');
-  return toPngBlob(out);
+  const blob = await toPngBlob(out);
+  out.width = out.height = 0;
+  return blob;
 }
 
 async function download(item = currentItem()) {
-  if (!item) return setStatus(emptyMessage(), true);
+  if (!item) return setStatus(emptyMessage(), { error: true });
   try {
     const blob = await outputBlob(item);
     const fileName = buildFileName(item.kind, item.name);
     downloadBlob(blob, fileName);
-    setStatus(`${fileName} 파일을 저장했어요.`);
+    setStatus(`${fileName} 파일을 다운로드했어요.`);
   } catch (err) {
     console.error(err);
-    setStatus('저장하지 못했어요. 다시 시도해 주세요.', true);
+    setStatus('다운로드하지 못했어요. 다시 시도해 주세요.', { error: true });
   }
 }
 
-async function copy() {
-  try {
-    await copyBlob(await outputBlob(currentItem()));
-    setStatus('이미지를 복사했어요. 문서에 붙여 넣으세요.');
-  } catch (err) {
-    console.error(err);
-    setStatus('복사하지 못했어요. 다운로드를 이용해 주세요.', true);
-  }
+function copy() {
+  const item = currentItem();
+  if (!item) return;
+  // Safari 는 탭한 직후에 clipboard.write 를 불러야 하므로 PNG 를 만드는 Promise 를 바로 넘긴다
+  copyBlob(outputBlob(item))
+    .then(() => setStatus('이미지를 복사했어요. 문서에 붙여 넣으세요.'))
+    .catch((err) => {
+      console.error(err);
+      setStatus('복사하지 못했어요. 다운로드를 이용해 주세요.', { error: true });
+    });
 }
 
 function canShareFiles() {
@@ -536,17 +635,36 @@ function canShareFiles() {
     return false;
   }
 }
+const SHARE_SUPPORTED = canShareFiles();
+
+/** 공유는 탭 직후에 불러야 하는 브라우저가 있어, 고른 항목의 PNG 를 미리 만들어 둔다 */
+let shareTimer = 0;
+function prepareShare(item) {
+  if (!SHARE_SUPPORTED) return;
+  clearTimeout(shareTimer);
+  state.shareCache = null;
+  if (!item) return;
+  const version = state.previewVersion;
+  shareTimer = setTimeout(async () => {
+    try {
+      const blob = await outputBlob(item);
+      if (version === state.previewVersion) state.shareCache = { version, item, blob };
+    } catch { /* 공유할 때 다시 만든다 */ }
+  }, 600);
+}
 
 async function share() {
   const item = currentItem();
+  if (!item) return;
+  const fileName = buildFileName(item.kind, item.name);
   try {
-    const fileName = buildFileName(item.kind, item.name);
-    const file = new File([await outputBlob(item)], fileName, { type: 'image/png' });
-    await navigator.share({ files: [file], title: fileName });
+    const cache = state.shareCache;
+    const blob = cache && cache.item === item && cache.version === state.previewVersion ? cache.blob : await outputBlob(item);
+    await navigator.share({ files: [new File([blob], fileName, { type: 'image/png' })], title: fileName });
   } catch (err) {
     if (err?.name !== 'AbortError') {
       console.error(err);
-      setStatus('공유하지 못했어요. 다운로드를 이용해 주세요.', true);
+      setStatus('공유하지 못했어요. 다운로드를 이용해 주세요.', { error: true });
     }
   }
 }
@@ -555,34 +673,75 @@ $('#download').addEventListener('click', () => download());
 $('#copy').addEventListener('click', copy);
 $('#copy').hidden = !canCopyImage();
 $('#share').addEventListener('click', share);
-$('#share').hidden = !canShareFiles();
+$('#share').hidden = !SHARE_SUPPORTED;
+
+// ───────────── 빠른 저장 바 ─────────────
+// 후보 카드 아래에 있는 저장 패널은 휴대폰에서 2~3화면 아래라, 고르면 화면 아래에 바로 저장 버튼을 띄운다.
+
+function updateQuickbar(out) {
+  const bar = $('#quickbar');
+  const show = Boolean(out) && state.tab !== 'doc' && !state.exportVisible;
+  bar.hidden = !show;
+  document.body.classList.toggle('has-quickbar', show);
+  if (!out) return;
+  const thumb = bar.querySelector('.quickbar-thumb');
+  thumb.querySelector('canvas')?.remove();
+  const c = document.createElement('canvas');
+  const k = Math.min(96 / out.width, 96 / out.height, 1);
+  c.width = Math.max(1, Math.round(out.width * k));
+  c.height = Math.max(1, Math.round(out.height * k));
+  c.getContext('2d').drawImage(out, 0, 0, c.width, c.height);
+  thumb.append(c);
+}
+
+new IntersectionObserver((entries) => {
+  state.exportVisible = entries.some((e) => e.isIntersecting);
+  const bar = $('#quickbar');
+  if (state.exportVisible) {
+    bar.hidden = true;
+    document.body.classList.remove('has-quickbar');
+  } else if (currentItem() && state.tab !== 'doc') {
+    bar.hidden = false;
+    document.body.classList.add('has-quickbar');
+  }
+}, { threshold: 0.25 }).observe($('#preview'));
+
+$('#quick-download').addEventListener('click', () => download());
+$('#quick-more').addEventListener('click', () => {
+  $('#export-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#export-title').setAttribute('tabindex', '-1');
+  $('#export-title').focus({ preventScroll: true });
+});
 
 // ───────────── 전체 ZIP ─────────────
 
 async function downloadZip(target) {
   const s = state[target];
-  if (!s.items.length) return;
+  if (!s.items.length || state.zipBusy[target]) return;
+  // 만드는 도중 이름·분류를 바꿔도 섞이지 않도록 시작할 때의 목록과 설정을 고정한다
+  const items = s.items.slice();
+  const name = items[0].name;
   const button = $(`#${target}-zip`);
+  state.zipBusy[target] = true;
   button.disabled = true;
-  setStatus(`${s.items.length}개 이미지를 묶는 중…`);
   try {
     const files = [];
-    const names = uniqueNames(s.items.map((it, i) => `${String(i + 1).padStart(2, '0')}_${sanitizeFilePart(`${it.label}_${it.sub}`)}.png`));
-    for (let i = 0; i < s.items.length; i++) {
-      const blob = await outputBlob(s.items[i]);
+    const names = uniqueNames(items.map((it, i) => `${String(i + 1).padStart(2, '0')}_${sanitizeFilePart(`${it.label}_${it.sub}`)}.png`));
+    for (let i = 0; i < items.length; i++) {
+      setStatus(`이미지를 묶는 중… ${i + 1}/${items.length}`, { sticky: true });
+      const blob = await outputBlob(items[i]);
       files.push({ name: names[i], data: new Uint8Array(await blob.arrayBuffer()) });
-      // 화면이 멈추지 않게 가끔 쉬어 간다
-      if (i % 4 === 3) await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0)); // 화면이 멈추지 않게 한 장마다 쉬어 간다
     }
-    const zip = new Blob([createZip(files)], { type: 'application/zip' });
-    const label = target === 'sign' ? '서명' : '도장';
-    const fileName = `${label}_전체_${sanitizeFilePart(s.items[0].name)}_${formatDate(new Date())}.zip`;
+    const zip = new Blob(createZipParts(files), { type: 'application/zip' });
+    const fileName = `${KIND_LABEL[KIND_BY_TARGET[target]]}_전체_${sanitizeFilePart(name)}_${formatDate(new Date())}.zip`;
     downloadBlob(zip, fileName);
-    setStatus(`${fileName} 파일을 저장했어요.`);
+    setStatus(`${fileName} 파일을 다운로드했어요.`);
   } catch (err) {
     console.error(err);
-    setStatus('ZIP 파일을 만들지 못했어요.', true);
+    setStatus('ZIP 파일을 만들지 못했어요.', { error: true });
   } finally {
+    state.zipBusy[target] = false;
     button.disabled = !s.items.length;
   }
 }
@@ -600,12 +759,13 @@ async function renderLibrary() {
     items = await library.listItems();
   } catch (err) {
     console.error(err);
-    grid.innerHTML = '<p class="empty">이 브라우저에서는 보관함을 쓸 수 없어요.</p>';
+    grid.innerHTML = '<p class="empty">이 브라우저(사생활 보호 모드 등)에서는 보관함을 쓸 수 없어요.</p>';
     return;
   }
   libraryUrls.forEach((u) => URL.revokeObjectURL(u));
   libraryUrls = [];
   $('#library-count').textContent = items.length ? `${items.length}개` : '';
+  $('#library-clear').hidden = !items.length;
   if (!items.length) {
     grid.innerHTML = '<p class="empty">저장한 서명·도장이 여기에 모여요.</p>';
     return;
@@ -620,27 +780,34 @@ async function renderLibrary() {
       <div class="lib-thumb checker"><img alt=""></div>
       <span class="lib-label"></span>
       <div class="lib-actions">
-        <button type="button" data-act="dl">저장</button>
-        <button type="button" data-act="doc">문서에</button>
+        <button type="button" data-act="dl">다운로드</button>
+        <button type="button" data-act="doc">문서에 넣기</button>
         <button type="button" data-act="del">삭제</button>
       </div>`;
+    const title = `${it.label}${it.name ? ` · ${it.name}` : ''}`;
     el.querySelector('img').src = url;
-    el.querySelector('img').alt = it.label;
-    el.querySelector('.lib-label').textContent = `${it.label}${it.name ? ` · ${it.name}` : ''}`;
+    el.querySelector('img').alt = title;
+    el.querySelector('.lib-label').textContent = title;
+    for (const b of el.querySelectorAll('button')) b.setAttribute('aria-label', `${title} ${b.textContent}`);
     el.querySelector('[data-act="dl"]').addEventListener('click', () => {
       const fileName = buildFileName(it.kind, it.name, new Date(it.createdAt));
       downloadBlob(it.blob, fileName);
-      setStatus(`${fileName} 파일을 저장했어요.`);
+      setStatus(`${fileName} 파일을 다운로드했어요.`);
     });
     el.querySelector('[data-act="doc"]').addEventListener('click', async () => {
       selectTab('doc');
-      if (!composer.hasDocument) return setStatus('먼저 문서 이미지를 선택해 주세요.', true);
-      composer.add(await blobToCanvas(it.blob), { widthRatio: it.kind === 'stamp' ? 0.16 : 0.3 });
-      setStatus('문서에 넣었어요. 끌어서 위치를 맞추세요.');
+      if (!composer.hasDocument) return setStatus('먼저 문서 이미지를 선택해 주세요.', { error: true });
+      const label = KIND_LABEL[it.kind] ?? '서명';
+      composer.add(await blobToCanvas(it.blob), { widthRatio: it.kind === 'stamp' ? 0.16 : 0.3, label });
+      setStatus(`${label}을 넣었어요. 끌어서 위치를 맞추세요.`);
     });
     el.querySelector('[data-act="del"]').addEventListener('click', async () => {
       await library.removeItem(it.id);
-      renderLibrary();
+      await renderLibrary();
+      // 실수로 지웠을 때 되돌릴 수 있게 잠시 기회를 준다
+      setStatus('보관함에서 삭제했어요.', {
+        action: { label: '되돌리기', run: async () => { await library.restoreItem(it); renderLibrary(); } },
+      });
     });
     grid.append(el);
   }
@@ -648,16 +815,32 @@ async function renderLibrary() {
 
 $('#save-library').addEventListener('click', async () => {
   const item = currentItem();
-  if (!item) return setStatus(emptyMessage(), true);
+  if (!item) return setStatus(emptyMessage(), { error: true });
   try {
     // 보관함에는 다른 곳에 다시 쓰기 좋게 투명 배경으로 저장한다
-    const blob = await toPngBlob(buildOutput(item, null));
+    const out = buildOutput(item, null);
+    const blob = await toPngBlob(out);
+    out.width = out.height = 0;
     await library.addItem({ kind: item.kind, name: item.name ?? '', label: item.label, blob });
+    navigator.storage?.persist?.().catch(() => {}); // 브라우저가 오래된 저장 데이터를 지우지 않도록 요청
     await renderLibrary();
     setStatus('보관함에 저장했어요.');
   } catch (err) {
     console.error(err);
-    setStatus('보관함에 저장하지 못했어요. 저장 공간을 확인해 주세요.', true);
+    setStatus('보관함에 저장하지 못했어요. 사생활 보호 모드이거나 저장 공간이 부족할 수 있어요.', { error: true });
+  }
+});
+
+$('#library-clear').addEventListener('click', async () => {
+  if (!window.confirm('보관함의 서명·도장과 기억해 둔 이름을 모두 지울까요? 되돌릴 수 없어요.')) return;
+  try {
+    await library.clearItems();
+    localStorage.removeItem(NAMES_KEY);
+    await renderLibrary();
+    setStatus('보관함과 기억해 둔 이름을 지웠어요.');
+  } catch (err) {
+    console.error(err);
+    setStatus('지우지 못했어요.', { error: true });
   }
 });
 
@@ -683,7 +866,7 @@ $('#doc-file').addEventListener('change', async (e) => {
     setStatus('문서를 불러왔어요. 넣을 항목을 고르세요.');
   } catch (err) {
     console.error(err);
-    setStatus('문서 이미지를 열지 못했어요.', true);
+    setStatus(err.userMessage ?? '문서 이미지를 열지 못했어요.', { error: true });
   }
   e.target.value = '';
 });
@@ -695,7 +878,10 @@ $$('#doc-add [data-add]').forEach((b) =>
     if (!item) return;
     // 문서에는 고해상도 투명 이미지를 올린다
     const canvas = finalize(item.render(2), null);
-    if (canvas) composer.add(canvas, { widthRatio: tab === 'stamp' ? 0.16 : 0.3 });
+    if (!canvas) return;
+    const label = tab === 'stamp' ? '도장' : '서명';
+    composer.add(canvas, { widthRatio: tab === 'stamp' ? 0.16 : 0.3, label });
+    setStatus(`${label}을 넣었어요. 끌어서 위치를 맞추세요.`);
   }),
 );
 
@@ -708,20 +894,27 @@ $('#doc-download').addEventListener('click', async () => {
     const blob = await new Promise((resolve, reject) =>
       out.toBlob((b) => (b ? resolve(b) : reject(new Error('변환 실패'))), type, 0.92),
     );
+    out.width = out.height = 0; // 원본 크기 임시 캔버스를 바로 놓아 준다
     const ext = type === 'image/jpeg' ? 'jpg' : 'png';
     const fileName = `${sanitizeFilePart(composer.docName) || '문서'}_서명완료_${formatDate(new Date())}.${ext}`;
     downloadBlob(blob, fileName);
-    setStatus(`${fileName} 파일을 저장했어요.`);
+    setStatus(`${fileName} 파일을 다운로드했어요.`);
   } catch (err) {
     console.error(err);
-    setStatus('문서를 저장하지 못했어요.', true);
+    setStatus('문서를 저장하지 못했어요. 문서 이미지가 너무 크면 줄여서 다시 올려 주세요.', { error: true });
   }
 });
 
 function updateDocButtons() {
   if (!state.ready) return; // 시작 전에는 composer 가 아직 없다
   const has = composer.hasDocument;
-  for (const b of $$('#doc-add [data-add]')) b.disabled = !has || !currentItem(b.dataset.add);
+  let anyMissing = false;
+  for (const b of $$('#doc-add [data-add]')) {
+    const missing = !currentItem(b.dataset.add);
+    anyMissing ||= missing;
+    b.disabled = !has || missing;
+  }
+  $('#doc-add-hint').hidden = !anyMissing;
   $('#doc-download').disabled = !has;
   $('#doc-clear').disabled = !has || composer.overlays.length === 0;
 }
@@ -729,13 +922,34 @@ function updateDocButtons() {
 // ───────────── 알림 / 기타 ─────────────
 
 let statusTimer = 0;
-function setStatus(text, isError = false) {
+/**
+ * @param {string} text
+ * @param {{error?: boolean, sticky?: boolean, action?: {label: string, run: () => void}}} [opts]
+ */
+function setStatus(text, { error = false, sticky = false, action = null } = {}) {
   const el = $('#status');
-  el.textContent = text;
-  el.classList.toggle('error', isError);
+  $('#status-text').textContent = text;
+  el.classList.toggle('error', error);
   el.classList.add('show');
+  const btn = $('#status-action');
+  btn.hidden = !action;
+  btn.onclick = null;
+  if (action) {
+    btn.textContent = action.label;
+    btn.onclick = () => {
+      el.classList.remove('show');
+      action.run();
+    };
+  }
   clearTimeout(statusTimer);
-  statusTimer = setTimeout(() => el.classList.remove('show'), isError ? 5000 : 3500);
+  if (!sticky) statusTimer = setTimeout(() => el.classList.remove('show'), action ? 6000 : error ? 5000 : 3500);
+}
+
+/** 화면에는 띄우지 않고 스크린리더에만 알린다 */
+function announce(text) {
+  const el = $('#announce');
+  el.textContent = '';
+  requestAnimationFrame(() => { el.textContent = text; });
 }
 
 function isoDate(d) {
@@ -753,6 +967,7 @@ function saveNames() {
     localStorage.setItem(NAMES_KEY, JSON.stringify({ sign: nameInput('sign').value, stamp: nameInput('stamp').value }));
   } catch { /* 저장 못 해도 동작에는 지장 없다 */ }
 }
+/** 이름만 채워 두고, 실제 생성(글꼴 다운로드)은 그 탭을 열 때 한다 */
 function restoreNames() {
   try {
     const saved = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}');
@@ -760,7 +975,6 @@ function restoreNames() {
       if (saved[target]) {
         nameInput(target).value = saved[target];
         updateCount(target);
-        generate(target);
       }
     }
   } catch { /* 무시 */ }
@@ -788,6 +1002,6 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
 state.ready = true;
 onPadChange();
 syncStampOptions('ko');
-selectTab('draw');
 restoreNames();
+selectTab('draw');
 renderLibrary();
