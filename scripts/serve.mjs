@@ -16,6 +16,9 @@ const TYPES = {
   '.png': 'image/png',
   '.json': 'application/json; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
 };
 
 createServer(async (req, res) => {

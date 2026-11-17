@@ -76,3 +76,43 @@ export function fillScale(gw, gh, cw, ch, minAspect = 0.6, maxAspect = 1.6) {
   const over = Math.max((gw * sx) / cw, (gh * sy) / ch, 1);
   return { sx: sx / over, sy: sy / over };
 }
+
+/** 점이 볼록 다각형 안(경계 포함)에 있는지. 꼭짓점 순서는 시계·반시계 상관없다 */
+export function pointInConvex(pt, poly) {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const cross = (b.x - a.x) * (pt.y - a.y) - (b.y - a.y) * (pt.x - a.x);
+    if (Math.abs(cross) < 1e-9) continue;
+    const s = Math.sign(cross);
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+/**
+ * 원점 중심 볼록 다각형 안에 들어가는, 가로:세로 = ratio 인 가장 큰 사각형.
+ * 반폭을 이분 탐색하며 네 꼭짓점이 모두 안에 있는지 확인한다.
+ */
+export function largestRectInPolygon(poly, ratio) {
+  let hi = Math.max(...poly.map((p) => Math.hypot(p.x, p.y)));
+  let lo = 0;
+  for (let i = 0; i < 40; i++) {
+    const s = (lo + hi) / 2;
+    const hy = s / ratio;
+    const ok = [[s, hy], [-s, hy], [s, -hy], [-s, -hy]].every(([x, y]) => pointInConvex({ x, y }, poly));
+    if (ok) lo = s;
+    else hi = s;
+  }
+  return { width: lo * 2, height: (lo * 2) / ratio };
+}
+
+/** 정다각형 꼭짓점 (반지름 a, b 로 늘린 모양). start 는 첫 꼭짓점 각도(라디안) */
+export function polygonPoints(sides, a, b, start = 0) {
+  return Array.from({ length: sides }, (_, i) => {
+    const t = start + (i / sides) * Math.PI * 2;
+    return { x: Math.cos(t) * a, y: Math.sin(t) * b };
+  });
+}

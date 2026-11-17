@@ -4,12 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>슈퍼도장 · 무료 전자서명·도장 만들기</title>
-  <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 한글·영문 지원.">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 서명 48가지, 도장 28가지, 문서에 바로 넣기까지. 한글·영문 지원.">
+  <meta name="theme-color" content="#e5483b">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=East+Sea+Dokdo&family=Dokdo&family=Gaegu:wght@700&family=Hi+Melody&family=Gamja+Flower&family=Yeon+Sung&family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Alex+Brush&family=Mr+Dafoe&family=Homemade+Apple&family=Caveat:wght@600&family=Nanum+Myeongjo:wght@800&family=Song+Myung&family=Black+Han+Sans&family=Gowun+Batang:wght@700&family=Do+Hyeon&family=Hahmlet:wght@700&family=Cinzel:wght@700&family=Playfair+Display:wght@700&family=Libre+Baskerville:wght@700&family=Oswald:wght@600&display=block">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=East+Sea+Dokdo&family=Dokdo&family=Gaegu:wght@700&family=Hi+Melody&family=Gamja+Flower&family=Yeon+Sung&family=Poor+Story&family=Single+Day&family=Cute+Font&family=Kirang+Haerang&family=Stylish&family=Black+And+White+Picture&family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Alex+Brush&family=Mr+Dafoe&family=Homemade+Apple&family=Caveat:wght@600&family=Pinyon+Script&family=Herr+Von+Muellerhoff&family=Monsieur+La+Doulaise&family=La+Belle+Aurore&family=Kristi&family=Satisfy&family=Parisienne&family=Yellowtail&family=Rouge+Script&family=Mrs+Saint+Delafield&family=Cedarville+Cursive&family=Reenie+Beanie&family=Marck+Script&family=Nanum+Myeongjo:wght@800&family=Noto+Serif+KR:wght@900&family=Song+Myung&family=Black+Han+Sans&family=Gowun+Batang:wght@700&family=Do+Hyeon&family=Hahmlet:wght@700&family=Jua&family=Gugi&family=Cinzel:wght@700&family=Playfair+Display:wght@700&family=Libre+Baskerville:wght@700&family=Oswald:wght@600&family=Special+Elite&family=Black+Ops+One&family=Bebas+Neue&display=block">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -18,13 +20,16 @@
       <img src="assets/favicon.svg" alt="" width="32" height="32">
       <span>슈퍼도장</span>
     </a>
-    <span class="badge">무료 · 설치 없음</span>
+    <div class="header-actions">
+      <button type="button" class="btn btn-ghost btn-sm" id="install" hidden>앱 설치</button>
+      <span class="badge">무료 · 설치 없음</span>
+    </div>
   </header>
 
   <main class="container">
     <section class="hero">
       <h1>전자서명·도장 만들기</h1>
-      <p>직접 그리거나 이름만 입력하세요. 투명 배경 PNG로 바로 내려받을 수 있어요.</p>
+      <p>직접 그리거나 이름만 입력하세요. 투명 배경 PNG로 바로 내려받고, 문서 이미지에 바로 찍을 수도 있어요.</p>
     </section>
 
     <section class="panel" aria-label="만들기">
@@ -32,25 +37,53 @@
         <button role="tab" id="tab-draw" aria-controls="panel-draw" aria-selected="true" data-tab="draw">직접 서명</button>
         <button role="tab" id="tab-sign" aria-controls="panel-sign" aria-selected="false" tabindex="-1" data-tab="sign">서명 생성</button>
         <button role="tab" id="tab-stamp" aria-controls="panel-stamp" aria-selected="false" tabindex="-1" data-tab="stamp">도장 생성</button>
+        <button role="tab" id="tab-doc" aria-controls="panel-doc" aria-selected="false" tabindex="-1" data-tab="doc">문서에 넣기</button>
       </div>
 
       <!-- 직접 서명 -->
       <div role="tabpanel" id="panel-draw" aria-labelledby="tab-draw" class="tabpanel">
-        <div class="pad-wrap">
-          <canvas id="pad" class="pad" aria-label="서명 입력 영역. 손가락이나 마우스로 서명하세요."></canvas>
-          <p class="pad-hint" id="pad-hint">여기에 서명하세요</p>
-          <div class="pad-tools">
-            <button type="button" class="icon-btn" id="pad-undo" aria-label="되돌리기" title="되돌리기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
-            </button>
-            <button type="button" class="icon-btn" id="pad-clear" aria-label="모두 지우기" title="모두 지우기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
-            </button>
+        <div class="seg" role="radiogroup" aria-label="입력 방법">
+          <label><input type="radio" name="draw-mode" value="pad" checked><span>손으로 그리기</span></label>
+          <label><input type="radio" name="draw-mode" value="photo"><span>사진에서 가져오기</span></label>
+        </div>
+
+        <div id="draw-pad-mode" class="mode-box">
+          <div class="pad-wrap">
+            <canvas id="pad" class="pad" aria-label="서명 입력 영역. 손가락이나 마우스로 서명하세요."></canvas>
+            <div class="pad-guide" aria-hidden="true"><span>✕</span></div>
+            <p class="pad-hint" id="pad-hint">여기에 서명하세요</p>
+            <div class="pad-tools">
+              <button type="button" class="icon-btn" id="pad-undo" aria-label="되돌리기" title="되돌리기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+              </button>
+              <button type="button" class="icon-btn" id="pad-clear" aria-label="모두 지우기" title="모두 지우기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="options">
+            <div class="field-row">
+              <label class="field-label" for="pen-width">펜 굵기</label>
+              <input type="range" id="pen-width" min="1.5" max="9" step="0.5" value="3.5">
+            </div>
           </div>
         </div>
-        <div class="field-row">
-          <label class="field-label" for="pen-width">펜 굵기</label>
-          <input type="range" id="pen-width" min="1.5" max="9" step="0.5" value="3.5">
+
+        <div id="draw-photo-mode" class="mode-box" hidden>
+          <label class="file-drop" id="photo-drop">
+            <input type="file" id="photo-file" accept="image/*">
+            <strong>서명 사진 선택</strong>
+            <span>흰 종이에 쓴 서명을 밝은 곳에서 찍어 주세요. 배경을 자동으로 지워요.</span>
+          </label>
+          <div class="options">
+            <div class="field-row">
+              <label class="field-label" for="photo-offset">배경 제거</label>
+              <span class="range-end">약하게</span>
+              <input type="range" id="photo-offset" min="-60" max="60" step="2" value="0">
+              <span class="range-end">강하게</span>
+            </div>
+            <label class="toggle"><input type="checkbox" id="photo-keep-color"><span>사진 색 그대로</span></label>
+          </div>
         </div>
       </div>
 
@@ -71,12 +104,19 @@
         <div class="options">
           <div class="field-row">
             <label class="field-label" for="sign-slant">기울기</label>
-            <input type="range" id="sign-slant" min="0" max="20" step="1" value="6">
+            <input type="range" id="sign-slant" min="-10" max="20" step="1" value="0">
           </div>
-          <label class="toggle"><input type="checkbox" id="sign-flourish"><span>밑줄 장식</span></label>
+          <div class="field-row">
+            <label class="field-label" for="sign-weight">굵기</label>
+            <input type="range" id="sign-weight" min="0" max="3" step="0.5" value="0">
+          </div>
+        </div>
+        <div class="results-head">
+          <span class="results-count" id="sign-count-label"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="sign-zip" disabled>전체 ZIP 다운로드</button>
         </div>
         <div class="results" id="sign-results" aria-live="polite">
-          <p class="empty">이름을 입력하면 서명 후보가 나타나요.</p>
+          <p class="empty">이름을 입력하면 서명 후보 24가지가 나타나요.</p>
         </div>
       </div>
 
@@ -94,29 +134,86 @@
             <button type="submit" class="btn btn-outline">만들기</button>
           </div>
         </form>
+        <div class="chips" id="stamp-cats" role="radiogroup" aria-label="모양 분류"></div>
         <div class="options">
           <div class="field-row">
             <label class="field-label" for="stamp-font">글꼴</label>
             <select id="stamp-font"><option value="auto">추천 조합</option></select>
           </div>
-          <div class="ko-only field-row">
-            <label class="field-label" for="stamp-order">읽는 순서</label>
-            <select id="stamp-order">
-              <option value="horizontal">가로 (왼쪽부터)</option>
-              <option value="vertical">세로 (오른쪽 열부터)</option>
-            </select>
-          </div>
           <label class="toggle ko-only"><input type="checkbox" id="stamp-in" checked><span>'인' 붙이기</span></label>
           <label class="toggle"><input type="checkbox" id="stamp-texture"><span>인주 질감</span></label>
+          <label class="toggle"><input type="checkbox" id="stamp-bleed"><span>잉크 번짐</span></label>
+        </div>
+        <details class="more">
+          <summary>세부 옵션</summary>
+          <div class="options">
+            <div class="ko-only field-row">
+              <label class="field-label" for="stamp-order">읽는 순서</label>
+              <select id="stamp-order">
+                <option value="horizontal">가로 (왼쪽부터)</option>
+                <option value="vertical">세로 (오른쪽 열부터)</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="stamp-rotation">회전</label>
+              <input type="range" id="stamp-rotation" min="-20" max="20" step="1" value="0">
+              <output id="stamp-rotation-out" for="stamp-rotation">0°</output>
+            </div>
+            <div class="field-row">
+              <label class="field-label" for="stamp-date">날짜 도장</label>
+              <input type="date" id="stamp-date">
+              <select id="stamp-date-label" aria-label="날짜 도장 문구">
+                <option value="">확인</option>
+                <option>결재</option>
+                <option>검수</option>
+                <option>승인</option>
+                <option>접수</option>
+                <option>완료</option>
+                <option>APPROVED</option>
+                <option>RECEIVED</option>
+                <option>PAID</option>
+              </select>
+            </div>
+          </div>
+        </details>
+        <div class="results-head">
+          <span class="results-count" id="stamp-count-label"></span>
+          <button type="button" class="btn btn-ghost btn-sm" id="stamp-zip" disabled>전체 ZIP 다운로드</button>
         </div>
         <div class="results stamps" id="stamp-results" aria-live="polite">
-          <p class="empty">이름을 입력하면 도장 후보가 나타나요.</p>
+          <p class="empty">이름을 입력하면 도장 후보 28가지가 나타나요.</p>
+        </div>
+      </div>
+
+      <!-- 문서에 넣기 -->
+      <div role="tabpanel" id="panel-doc" aria-labelledby="tab-doc" class="tabpanel" hidden>
+        <label class="file-drop">
+          <input type="file" id="doc-file" accept="image/png,image/jpeg,image/webp">
+          <strong>문서 이미지 선택</strong>
+          <span>계약서, 신청서 등을 JPG·PNG로 올리세요. PDF는 화면 캡처나 이미지로 저장해서 올려 주세요.</span>
+        </label>
+        <div class="doc-add" id="doc-add">
+          <span class="field-label">넣을 항목</span>
+          <button type="button" class="btn btn-outline btn-sm" data-add="draw" disabled>직접 서명</button>
+          <button type="button" class="btn btn-outline btn-sm" data-add="sign" disabled>선택한 서명</button>
+          <button type="button" class="btn btn-outline btn-sm" data-add="stamp" disabled>선택한 도장</button>
+        </div>
+        <p class="hint">보관함 항목도 '문서에 넣기'로 올릴 수 있어요. 올린 항목은 끌어서 옮기고, 오른쪽 아래 모서리를 끌어 크기를 바꿔요.</p>
+        <div class="doc-stage multiply" id="doc-stage">
+          <p class="empty">문서 이미지를 먼저 선택해 주세요.</p>
+        </div>
+        <div class="options">
+          <label class="toggle"><input type="checkbox" id="doc-multiply" checked><span>종이에 스며들게 합성</span></label>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="doc-download" disabled>완성 문서 다운로드</button>
+          <button type="button" class="btn btn-ghost" id="doc-clear" disabled>모두 빼기</button>
         </div>
       </div>
     </section>
 
     <!-- 저장 옵션 -->
-    <section class="panel export" aria-labelledby="export-title">
+    <section class="panel export" id="export-panel" aria-labelledby="export-title">
       <h2 id="export-title">저장하기</h2>
 
       <div class="opt-group">
@@ -152,9 +249,24 @@
       <div class="actions">
         <button type="button" class="btn btn-primary" id="download" disabled>PNG 다운로드</button>
         <button type="button" class="btn btn-ghost" id="copy" hidden disabled>복사</button>
+        <button type="button" class="btn btn-ghost" id="share" hidden disabled>공유</button>
       </div>
-      <p class="status" id="status" role="status" aria-live="polite"></p>
+      <button type="button" class="btn btn-ghost btn-block" id="save-library" disabled>보관함에 저장</button>
     </section>
+
+    <!-- 보관함 -->
+    <section class="panel library" aria-labelledby="library-title">
+      <div class="library-head">
+        <h2 id="library-title">보관함</h2>
+        <span class="results-count" id="library-count"></span>
+      </div>
+      <p class="hint">이 브라우저에만 저장돼요. 다른 기기에서는 보이지 않아요.</p>
+      <div class="library-grid" id="library-grid">
+        <p class="empty">저장한 서명·도장이 여기에 모여요.</p>
+      </div>
+    </section>
+
+    <p class="status" id="status" role="status" aria-live="polite"></p>
 
     <footer class="site-footer">
       <p>모든 이미지는 이 브라우저 안에서만 만들어지고 서버로 보내지 않아요.</p>

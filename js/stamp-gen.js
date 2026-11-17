@@ -1,117 +1,311 @@
-// 이름 → 도장 이미지
+// 이름 → 도장 이미지 (28종)
 import { fontString } from './fonts.js';
-import { gridFor, cellOrder, rectInEllipse, fillScale } from './core/geometry.js';
+import { gridFor, cellOrder, fillScale, largestRectInPolygon, polygonPoints } from './core/geometry.js';
 import { createRandom, hashString } from './core/random.js';
 
 const BASE = 400; // mult = 1 일 때 도장 기준 크기(px)
 const MEASURE_PX = 200;
 
-export const KO_SHAPES = [
-  { id: 'ellipse-v', label: '타원' },
+export const STAMP_CATEGORIES = [
+  { id: 'all', label: '전체' },
   { id: 'circle', label: '원형' },
-  { id: 'square', label: '정사각' },
-  { id: 'rounded', label: '둥근 사각' },
-  { id: 'double-circle', label: '이중 원' },
-  { id: 'rect-h', label: '가로형' },
+  { id: 'ellipse', label: '타원형' },
+  { id: 'square', label: '사각형' },
+  { id: 'poly', label: '다각형·기타' },
+  { id: 'line', label: '가로·세로형' },
+  { id: 'special', label: '둘레글자·날짜' },
 ];
 
-export const EN_SHAPES = [
-  { id: 'rect-double', label: 'Rectangle' },
-  { id: 'ellipse-h', label: 'Oval' },
-  { id: 'ring', label: 'Seal' },
-  { id: 'square-lines', label: 'Square' },
+// outline: ellipse | rect | round | chamfer | polygon | scallop | none
+// layout(한글): column 세로 한 줄, grid 격자, row 가로 한 줄
+export const STAMP_SHAPES = [
+  { id: 'circle', label: '원형', cat: 'circle', outline: 'ellipse', layout: 'grid' },
+  { id: 'circle-double', label: '이중 원', cat: 'circle', outline: 'ellipse', layout: 'grid', double: true },
+  { id: 'circle-thick', label: '굵은 테 원', cat: 'circle', outline: 'ellipse', layout: 'grid', thick: true },
+  { id: 'circle-inverted', label: '음각 원', cat: 'circle', outline: 'ellipse', layout: 'grid', inverted: true },
+  { id: 'circle-dotted', label: '점선 원', cat: 'circle', outline: 'ellipse', layout: 'grid', dotted: true },
+  { id: 'circle-scallop', label: '꽃테 원', cat: 'circle', outline: 'scallop', layout: 'grid' },
+  { id: 'circle-cross', label: '칸 나눔 원', cat: 'circle', outline: 'ellipse', layout: 'grid', dividers: true },
+  { id: 'ellipse', label: '타원', cat: 'ellipse', outline: 'ellipse', layout: 'column' },
+  { id: 'ellipse-double', label: '이중 타원', cat: 'ellipse', outline: 'ellipse', layout: 'column', double: true },
+  { id: 'ellipse-inverted', label: '음각 타원', cat: 'ellipse', outline: 'ellipse', layout: 'column', inverted: true },
+  { id: 'ellipse-h', label: '가로 타원', cat: 'ellipse', outline: 'ellipse', layout: 'row' },
+  { id: 'square', label: '정사각', cat: 'square', outline: 'rect', layout: 'grid' },
+  { id: 'square-double', label: '이중 사각', cat: 'square', outline: 'rect', layout: 'grid', double: true },
+  { id: 'square-thick', label: '굵은 테 사각', cat: 'square', outline: 'rect', layout: 'grid', thick: true },
+  { id: 'square-inverted', label: '음각 사각', cat: 'square', outline: 'rect', layout: 'grid', inverted: true },
+  { id: 'square-grid', label: '칸 나눔 사각', cat: 'square', outline: 'rect', layout: 'grid', dividers: true },
+  { id: 'rounded', label: '둥근 사각', cat: 'square', outline: 'round', layout: 'grid' },
+  { id: 'rounded-inverted', label: '음각 둥근 사각', cat: 'square', outline: 'round', layout: 'grid', inverted: true },
+  { id: 'chamfer', label: '모서리 깎은 사각', cat: 'poly', outline: 'chamfer', layout: 'grid' },
+  { id: 'octagon', label: '팔각', cat: 'poly', outline: 'polygon', sides: 8, start: Math.PI / 8, layout: 'grid' },
+  { id: 'hexagon', label: '육각', cat: 'poly', outline: 'polygon', sides: 6, start: 0, layout: 'grid' },
+  { id: 'diamond', label: '마름모', cat: 'poly', outline: 'polygon', sides: 4, start: 0, layout: 'grid' },
+  { id: 'borderless', label: '테두리 없음', cat: 'poly', outline: 'none', layout: 'grid' },
+  { id: 'rect-h', label: '가로형', cat: 'line', outline: 'rect', layout: 'row' },
+  { id: 'rect-h-inverted', label: '음각 가로형', cat: 'line', outline: 'rect', layout: 'row', inverted: true },
+  { id: 'rect-v', label: '세로형', cat: 'line', outline: 'rect', layout: 'column' },
+  { id: 'ring', label: '둘레글자 원', cat: 'special', special: 'ring' },
+  { id: 'date', label: '날짜 도장', cat: 'special', special: 'date' },
 ];
 
 /**
  * @param {object} o
- * @param {string[]} o.chars 한글 도장 글자 목록 (lang=ko)
- * @param {string} o.text 영문 도장 글자 (lang=en)
  * @param {'ko'|'en'} o.lang
- * @param {string} o.shape 모양 id
+ * @param {string[]} o.chars 한글 도장 글자('인' 포함 가능)
+ * @param {string} o.text 원래 이름
+ * @param {object} o.shape STAMP_SHAPES 항목
  * @param {object} o.font
- * @param {'horizontal'|'vertical'} o.order 읽는 순서
+ * @param {'horizontal'|'vertical'} [o.order]
  * @param {string} o.ink
- * @param {boolean} o.texture 인주 질감
- * @param {number} o.mult
+ * @param {boolean} [o.texture] 인주 질감
+ * @param {boolean} [o.bleed] 잉크 번짐
+ * @param {number} [o.rotation] 회전(도)
+ * @param {string} [o.date] 날짜 도장 날짜 문자열
+ * @param {string} [o.dateLabel] 날짜 도장 문구
+ * @param {number} [o.mult]
  */
 export function renderStamp(o) {
-  const canvas = o.lang === 'en' ? drawEnglish(o) : drawKorean(o);
-  if (o.texture) applyTexture(canvas, hashString(`${o.shape}|${o.font.family}|${o.text ?? o.chars.join('')}`));
+  let canvas;
+  if (o.shape.special === 'ring') canvas = drawRing(o);
+  else if (o.shape.special === 'date') canvas = drawDate(o);
+  else canvas = drawFramed(o);
+  if (o.bleed) canvas = applyBleed(canvas, o.mult ?? 1);
+  if (o.texture) applyTexture(canvas, hashString(`${o.shape.id}|${o.font.family}|${o.text}`));
+  if (o.rotation) canvas = rotateCanvas(canvas, o.rotation);
   return canvas;
 }
 
-// ───────────── 한글 ─────────────
+// ───────────── 테두리 있는 기본 도장 ─────────────
 
-function drawKorean({ chars, shape, font, order = 'horizontal', ink, mult = 1 }) {
+function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink, mult = 1 }) {
   const S = BASE * mult;
-  const n = chars.length;
-  const mode = shape === 'ellipse-v' ? 'column' : shape === 'rect-h' ? 'row' : 'grid';
-  const { cols, rows } = gridFor(n, mode);
+  const content = lang === 'ko' ? koContent(chars, shape.layout) : enContent(text, shape.layout);
+  const { W, H } = frameSize(shape, S, lang, content);
 
-  // 모양 크기
-  let W = S;
-  let H = S;
-  if (shape === 'ellipse-v') {
-    W = S * clamp((cols / rows) * 1.6, 0.56, 1);
-  } else if (shape === 'rect-h') {
-    H = S * 0.42;
-    W = H * clamp(n * 0.95 + 0.25, 1.6, 6);
-  }
-
-  const border = Math.max(2, S * 0.034);
-  const margin = border * 1.2;
+  const border = shape.outline === 'none' ? 0 : Math.max(2, S * 0.034) * (shape.thick ? 2 : 1);
+  const margin = Math.max(border, S * 0.02) * 1.2;
   const canvas = makeCanvas(W + margin * 2, H + margin * 2);
   const ctx = canvas.getContext('2d');
-  ctx.strokeStyle = ink;
-  ctx.fillStyle = ink;
-  ctx.lineWidth = border;
-
   const cx = canvas.width / 2;
   const cy = canvas.height / 2;
-  const gap = border * 1.4; // 테두리와 글자 사이
-  const ratio = cols / rows;
-  let inner; // 글자 영역 {w, h}
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+  const thin = Math.max(1.5, S * 0.034) * 0.45;
 
-  if (shape === 'ellipse-v' || shape === 'circle' || shape === 'double-circle') {
-    const a = W / 2 - border / 2;
-    const b = H / 2 - border / 2;
-    strokeEllipse(ctx, cx, cy, a, b);
-    let ia = a - border / 2 - gap;
-    let ib = b - border / 2 - gap;
-    if (shape === 'double-circle') {
-      ctx.lineWidth = border * 0.45;
-      const r2a = a - border * 2.2;
-      const r2b = b - border * 2.2;
-      strokeEllipse(ctx, cx, cy, r2a, r2b);
-      ia = r2a - border * 0.25 - gap * 0.8;
-      ib = r2b - border * 0.25 - gap * 0.8;
+  // 1) 바깥 테두리
+  if (shape.inverted) {
+    tracePath(ctx, shape, cx, cy, W, H);
+    ctx.fill();
+  } else if (border > 0) {
+    ctx.lineWidth = border;
+    if (shape.dotted) {
+      ctx.setLineDash([0.01, border * 1.9]);
+      ctx.lineCap = 'round';
+      ctx.lineWidth = border * 1.15;
     }
-    // 곡선 모양은 글자 모서리가 비어 있어 내접 사각형보다 조금 크게 잡는다
-    const r = rectInEllipse(ia, ib, ratio);
-    inner = { w: Math.min(r.width * 1.1, ia * 2 * 0.92), h: Math.min(r.height * 1.1, ib * 2 * 0.92) };
-  } else {
-    const radius = shape === 'rounded' ? Math.min(W, H) * 0.16 : Math.min(W, H) * 0.02;
-    strokeRoundRect(ctx, cx - W / 2 + border / 2, cy - H / 2 + border / 2, W - border, H - border, radius);
-    inner = { w: W - border * 2 - gap * 2, h: H - border * 2 - gap * 2 };
+    tracePath(ctx, shape, cx, cy, W - border, H - border);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineCap = 'butt';
   }
 
-  // 한 줄 가로형은 읽는 순서 옵션과 상관없이 왼쪽부터 쓴다
-  const gridOrder = mode === 'row' ? 'horizontal' : order;
-  drawCharGrid(ctx, { chars, font, cols, rows, order: gridOrder, cx, cy, w: inner.w, h: inner.h });
-  return canvas;
-}
+  // 2) 안쪽 보조선
+  let inset = border + S * 0.034 * 0.6; // 테두리 안쪽에서 글자까지의 거리
+  if (shape.double || shape.dotted || shape.outline === 'scallop' || shape.inverted) {
+    const d = border + S * 0.034 * 1.1;
+    ctx.lineWidth = thin;
+    if (shape.inverted) ctx.globalCompositeOperation = 'destination-out';
+    tracePath(ctx, shape, cx, cy, W - d * 2, H - d * 2);
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    inset = d + thin + S * 0.02;
+  }
+  if (shape.outline === 'none') inset = 0;
 
-function drawCharGrid(ctx, { chars, font, cols, rows, order, cx, cy, w, h }) {
-  const cw = w / cols;
-  const ch = h / rows;
-  const cells = cellOrder(chars.length, cols, rows, order);
-  // 마지막 줄이 덜 차면 가운데로 모은다 (가로 순서일 때)
-  const lastRowCount = chars.length - (rows - 1) * cols;
+  // 3) 글자 영역
+  const cw = W - inset * 2;
+  const chh = H - inset * 2;
+  const ratio = content.cols / content.rows;
+  const area = textArea(shape, cw, chh, ratio);
 
+  if (shape.inverted) ctx.globalCompositeOperation = 'destination-out';
+  if (shape.dividers) {
+    const grid = lang === 'ko' ? content : { cols: 1, rows: content.lines.length };
+    drawDividers(ctx, shape, cx, cy, cw, chh, area, grid, thin);
+  }
   ctx.font = fontString(font, MEASURE_PX);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
+  if (lang === 'ko') {
+    const gridOrder = shape.layout === 'row' ? 'horizontal' : order;
+    drawCharGrid(ctx, { chars, cols: content.cols, rows: content.rows, order: gridOrder, cx, cy, w: area.w, h: area.h });
+  } else {
+    drawLines(ctx, content.lines, cx, cy, area.w, area.h);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  return canvas;
+}
 
+function koContent(chars, layout) {
+  const { cols, rows } = gridFor(chars.length, layout);
+  return { cols, rows, n: chars.length };
+}
+
+/** 영문은 글자 칸 대신 줄 단위로 배치한다 */
+function enContent(text, layout) {
+  const label = text.toUpperCase().trim();
+  if (layout === 'row') return { lines: [label], cols: 3, rows: 1, len: label.length };
+  let words = label.split(/\s+/).filter(Boolean);
+  if (words.length > 3) {
+    const half = Math.ceil(words.length / 2);
+    words = [words.slice(0, half).join(' '), words.slice(half).join(' ')];
+  }
+  const longest = Math.max(...words.map((w) => w.length), 1);
+  // 줄 수와 가장 긴 줄 길이로 글자 영역 비율을 정한다
+  const ratio = Math.min(2.2, Math.max(0.8, (longest * 0.6) / words.length));
+  return { lines: words, cols: ratio, rows: 1, len: label.length };
+}
+
+function frameSize(shape, S, lang, content) {
+  const ellipse = shape.outline === 'ellipse';
+  if (shape.layout === 'row') {
+    const units = lang === 'ko' ? content.n : content.len * 0.55;
+    if (ellipse) {
+      const H = S * 0.56;
+      return { W: H * clamp(units * 0.85 + 0.7, 1.6, 4.8), H };
+    }
+    const H = S * 0.42;
+    return { W: H * clamp(units * 0.95 + 0.35, 1.6, 6), H };
+  }
+  if (shape.layout === 'column') {
+    if (lang === 'en') return { W: S * clamp(0.5 + content.cols * 0.18, 0.62, 0.85), H: S };
+    const r = content.cols / content.rows;
+    return { W: S * clamp(r * (ellipse ? 1.6 : 1.35), ellipse ? 0.56 : 0.5, 1), H: S };
+  }
+  return { W: S, H: S };
+}
+
+/** 모양 안에서 글자를 넣을 사각형 */
+function textArea(shape, w, h, ratio) {
+  switch (shape.outline) {
+    case 'rect':
+    case 'none':
+      return { w, h };
+    case 'round':
+      return { w: w * 0.96, h: h * 0.96 };
+    case 'chamfer':
+      return { w: w * 0.9, h: h * 0.9 };
+    default: {
+      const poly = outlinePoints(shape, w, h);
+      const r = largestRectInPolygon(poly, ratio);
+      // 곡선·다각형은 글자 모서리가 비어 있어 내접 사각형보다 조금 크게 잡는다
+      const k = shape.outline === 'polygon' && shape.sides === 4 ? 1.12 : 1.1;
+      return { w: Math.min(r.width * k, w * 0.92), h: Math.min(r.height * k, h * 0.92) };
+    }
+  }
+}
+
+/** 원점 중심 모양의 꼭짓점 근사 (글자 영역 계산용) */
+function outlinePoints(shape, w, h) {
+  const a = w / 2;
+  const b = h / 2;
+  if (shape.outline === 'polygon') return polygonPoints(shape.sides, a, b, shape.start);
+  if (shape.outline === 'scallop') return polygonPoints(72, a * 0.93, b * 0.93);
+  return polygonPoints(72, a, b);
+}
+
+function tracePath(ctx, shape, cx, cy, w, h) {
+  const a = Math.max(1, w / 2);
+  const b = Math.max(1, h / 2);
+  ctx.beginPath();
+  switch (shape.outline) {
+    case 'ellipse':
+      ctx.ellipse(cx, cy, a, b, 0, 0, Math.PI * 2);
+      break;
+    case 'rect':
+      roundRectPath(ctx, cx - a, cy - b, w, h, Math.min(w, h) * 0.02);
+      break;
+    case 'round':
+      roundRectPath(ctx, cx - a, cy - b, w, h, Math.min(w, h) * 0.17);
+      break;
+    case 'chamfer': {
+      const c = Math.min(w, h) * 0.15;
+      polyPath(ctx, cx, cy, [
+        { x: -a + c, y: -b }, { x: a - c, y: -b }, { x: a, y: -b + c }, { x: a, y: b - c },
+        { x: a - c, y: b }, { x: -a + c, y: b }, { x: -a, y: b - c }, { x: -a, y: -b + c },
+      ]);
+      break;
+    }
+    case 'polygon':
+      polyPath(ctx, cx, cy, polygonPoints(shape.sides, a, b, shape.start));
+      break;
+    case 'scallop': {
+      const bumps = 18;
+      const pts = Array.from({ length: 360 }, (_, i) => {
+        const t = (i / 360) * Math.PI * 2;
+        const k = 1 - 0.07 * (1 - Math.abs(Math.sin((bumps * t) / 2)));
+        return { x: Math.cos(t) * a * k, y: Math.sin(t) * b * k };
+      });
+      polyPath(ctx, cx, cy, pts);
+      break;
+    }
+    default:
+      break;
+  }
+  ctx.closePath();
+}
+
+function polyPath(ctx, cx, cy, pts) {
+  pts.forEach((p, i) => (i ? ctx.lineTo(cx + p.x, cy + p.y) : ctx.moveTo(cx + p.x, cy + p.y)));
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+}
+
+/** 칸 나눔선. 사각은 테두리까지, 원은 안쪽 원 안에서만 긋는다 */
+function drawDividers(ctx, shape, cx, cy, w, h, area, content, width) {
+  const cols = Math.max(1, Math.round(content.cols));
+  const rows = Math.max(1, Math.round(content.rows));
+  ctx.save();
+  ctx.lineWidth = width;
+  if (shape.outline === 'ellipse') {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.clip();
+  }
+  const ext = shape.outline === 'ellipse' ? Math.max(w, h) : 0;
+  const x0 = cx - (shape.outline === 'ellipse' ? ext : area.w / 2);
+  const x1 = cx + (shape.outline === 'ellipse' ? ext : area.w / 2);
+  const y0 = cy - (shape.outline === 'ellipse' ? ext : area.h / 2);
+  const y1 = cy + (shape.outline === 'ellipse' ? ext : area.h / 2);
+  ctx.beginPath();
+  for (let c = 1; c < cols; c++) {
+    const x = cx - area.w / 2 + (area.w / cols) * c;
+    ctx.moveTo(x, y0);
+    ctx.lineTo(x, y1);
+  }
+  for (let r = 1; r < rows; r++) {
+    const y = cy - area.h / 2 + (area.h / rows) * r;
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawCharGrid(ctx, { chars, cols, rows, order, cx, cy, w, h }) {
+  const cw = w / cols;
+  const ch = h / rows;
+  const cells = cellOrder(chars.length, cols, rows, order);
+  const lastRowCount = chars.length - (rows - 1) * cols;
   chars.forEach((c, i) => {
     const { col, row } = cells[i];
     let x0 = cx - w / 2 + col * cw;
@@ -123,6 +317,13 @@ function drawCharGrid(ctx, { chars, font, cols, rows, order, cx, cy, w, h }) {
   });
 }
 
+function drawLines(ctx, lines, cx, cy, w, h) {
+  const lh = h / lines.length;
+  lines.forEach((line, i) => {
+    drawFittedGlyph(ctx, line, cx, cy - h / 2 + lh * (i + 0.5), w, lh * 0.84, 0.45, 1.5);
+  });
+}
+
 /** 글자의 실제 경계 상자를 칸에 꽉 차게 늘려 그린다 */
 function drawFittedGlyph(ctx, text, cx, cy, cw, ch, minAspect, maxAspect) {
   const m = ctx.measureText(text);
@@ -130,9 +331,7 @@ function drawFittedGlyph(ctx, text, cx, cy, cw, ch, minAspect, maxAspect) {
   const right = m.actualBoundingBoxRight ?? m.width;
   const ascent = m.actualBoundingBoxAscent ?? MEASURE_PX * 0.8;
   const descent = m.actualBoundingBoxDescent ?? MEASURE_PX * 0.2;
-  const gw = left + right;
-  const gh = ascent + descent;
-  const { sx, sy } = fillScale(gw, gh, cw, ch, minAspect, maxAspect);
+  const { sx, sy } = fillScale(left + right, ascent + descent, cw, ch, minAspect, maxAspect);
   ctx.save();
   ctx.translate(cx, cy);
   ctx.scale(sx, sy);
@@ -140,90 +339,54 @@ function drawFittedGlyph(ctx, text, cx, cy, cw, ch, minAspect, maxAspect) {
   ctx.restore();
 }
 
-// ───────────── 영문 ─────────────
+// ───────────── 둘레글자 원 ─────────────
 
-function drawEnglish({ text, shape, font, ink, mult = 1 }) {
+function drawRing({ lang, chars, text, font, ink, mult = 1 }) {
   const S = BASE * mult;
-  const label = text.toUpperCase();
   const border = Math.max(2, S * 0.03);
-  let W;
-  let H;
-  if (shape === 'rect-double') {
-    H = S * 0.46;
-    W = H * clamp(label.length * 0.5 + 0.8, 2, 5.2);
-  } else if (shape === 'ellipse-h') {
-    H = S * 0.62;
-    W = H * clamp(label.length * 0.32 + 0.9, 1.5, 3.2);
-  } else {
-    W = S;
-    H = S;
-  }
-  const margin = border * 1.2;
-  const canvas = makeCanvas(W + margin * 2, H + margin * 2);
+  const canvas = makeCanvas(S + border * 2.4, S + border * 2.4);
   const ctx = canvas.getContext('2d');
   const cx = canvas.width / 2;
   const cy = canvas.height / 2;
   ctx.strokeStyle = ink;
   ctx.fillStyle = ink;
-  ctx.lineWidth = border;
-  ctx.font = fontString(font, MEASURE_PX);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
 
-  if (shape === 'rect-double') {
-    strokeRoundRect(ctx, cx - W / 2 + border / 2, cy - H / 2 + border / 2, W - border, H - border, H * 0.04);
-    ctx.lineWidth = border * 0.4;
-    const inset = border * 2.4;
-    strokeRoundRect(ctx, cx - W / 2 + inset, cy - H / 2 + inset, W - inset * 2, H - inset * 2, H * 0.02);
-    const pad = inset + border * 1.6;
-    drawFittedGlyph(ctx, label, cx, cy, W - pad * 2, H - pad * 2, 0.55, 1.4);
-  } else if (shape === 'ellipse-h') {
-    const a = W / 2 - border / 2;
-    const b = H / 2 - border / 2;
-    strokeEllipse(ctx, cx, cy, a, b);
-    const ia = a - border * 2;
-    const ib = b - border * 2;
-    const r = rectInEllipse(ia, ib, Math.max(1.5, a / b * 1.4));
-    drawFittedGlyph(ctx, label, cx, cy, r.width, r.height * 0.9, 0.55, 1.4);
-  } else if (shape === 'ring') {
-    drawRingSeal(ctx, { label, font, cx, cy, S, border });
-  } else {
-    // square-lines: 단어마다 한 줄
-    strokeRoundRect(ctx, cx - W / 2 + border / 2, cy - H / 2 + border / 2, W - border, H - border, W * 0.03);
-    const words = label.split(/\s+/).filter(Boolean);
-    const lines = words.length > 3 ? [words.slice(0, Math.ceil(words.length / 2)).join(' '), words.slice(Math.ceil(words.length / 2)).join(' ')] : words;
-    const pad = border * 3;
-    const innerW = W - pad * 2;
-    const innerH = H - pad * 2;
-    const lh = innerH / lines.length;
-    lines.forEach((line, i) => {
-      drawFittedGlyph(ctx, line, cx, cy - innerH / 2 + lh * (i + 0.5), innerW, lh * 0.82, 0.45, 1.6);
-    });
-  }
-  return canvas;
-}
-
-/** 바깥 고리에 이름을 둘러 쓰고 가운데에 머리글자를 넣는다 */
-function drawRingSeal(ctx, { label, font, cx, cy, S, border }) {
   const R = S / 2 - border / 2;
+  ctx.lineWidth = border;
   ctx.beginPath();
   ctx.arc(cx, cy, R, 0, Math.PI * 2);
   ctx.stroke();
-  const innerR = R * 0.64;
+  const innerR = R * 0.62;
   ctx.lineWidth = border * 0.5;
   ctx.beginPath();
   ctx.arc(cx, cy, innerR, 0, Math.PI * 2);
   ctx.stroke();
 
-  // 고리 글자
-  const ringMid = (R - border / 2 + innerR) / 2;
-  const bandH = R - border / 2 - innerR;
-  let px = bandH * 0.62;
-  const unit = `${label} ★ `;
+  const name = lang === 'ko' ? chars.filter((c, i) => !(c === '인' && i === chars.length - 1)).join('') : text.toUpperCase().trim();
+  drawCircularText(ctx, {
+    unit: lang === 'ko' ? `${name} ★ ` : `${name} ★ `,
+    font, cx, cy, mid: (R - border / 2 + innerR) / 2, band: R - border / 2 - innerR,
+  });
+
+  // 가운데: 한글은 '인', 영문은 머리글자
+  const center = lang === 'ko'
+    ? '인'
+    : text.toUpperCase().split(/\s+/).filter(Boolean).map((w) => Array.from(w)[0]).join('').slice(0, 3) || 'A';
+  ctx.font = fontString(font, MEASURE_PX);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const box = innerR * 1.25;
+  drawFittedGlyph(ctx, center, cx, cy, lang === 'ko' ? box * 0.8 : box, lang === 'ko' ? box * 0.8 : box * 0.6, 0.7, 1.3);
+  return canvas;
+}
+
+/** 원을 따라 글자를 고르게 두른다. 짧은 이름은 반복해 원을 채운다 */
+function drawCircularText(ctx, { unit, font, cx, cy, mid, band }) {
+  let px = band * 0.62;
   ctx.font = fontString(font, px);
-  const circ = 2 * Math.PI * ringMid;
+  const circ = 2 * Math.PI * mid;
   let unitW = ctx.measureText(unit).width;
-  let repeat = Math.max(1, Math.min(3, Math.floor((circ * 0.9) / unitW)));
+  const repeat = Math.max(1, Math.min(3, Math.floor((circ * 0.9) / unitW)));
   if (unitW * repeat > circ * 0.95) {
     px *= (circ * 0.95) / (unitW * repeat);
     ctx.font = fontString(font, px);
@@ -232,60 +395,89 @@ function drawRingSeal(ctx, { label, font, cx, cy, S, border }) {
   const full = Array.from(unit.repeat(repeat));
   const widths = full.map((c) => ctx.measureText(c).width);
   const total = widths.reduce((s, w) => s + w, 0);
-  const extra = (circ - total) / full.length; // 남는 간격을 고르게 나눈다
+  const extra = (circ - total) / full.length;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  let angle = -Math.PI / 2 - (widths[0] + extra) / 2 / ringMid;
+  let angle = -Math.PI / 2 - (widths[0] + extra) / 2 / mid;
   full.forEach((c, i) => {
-    const step = (widths[i] + extra) / ringMid;
+    const step = (widths[i] + extra) / mid;
     const a = angle + step / 2;
     ctx.save();
-    ctx.translate(cx + Math.cos(a) * ringMid, cy + Math.sin(a) * ringMid);
+    ctx.translate(cx + Math.cos(a) * mid, cy + Math.sin(a) * mid);
     ctx.rotate(a + Math.PI / 2);
     ctx.fillText(c, 0, 0);
     ctx.restore();
     angle += step;
   });
+}
 
-  // 가운데 머리글자
-  const initials = label
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => Array.from(w)[0])
-    .join('')
-    .slice(0, 3) || label.slice(0, 1);
+// ───────────── 날짜 도장 ─────────────
+
+function drawDate({ lang, chars, text, font, ink, date, dateLabel, mult = 1 }) {
+  const S = BASE * mult;
+  const border = Math.max(2, S * 0.03);
+  const canvas = makeCanvas(S + border * 2.4, S + border * 2.4);
+  const ctx = canvas.getContext('2d');
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  ctx.strokeStyle = ink;
+  ctx.fillStyle = ink;
+
+  const R = S / 2 - border / 2;
+  ctx.lineWidth = border;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
+  const Ri = R - border * 1.9;
+  ctx.lineWidth = border * 0.45;
+  ctx.beginPath();
+  ctx.arc(cx, cy, Ri, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 가운데 띠
+  const bh = Ri * 0.2;
+  const chord = (y) => 2 * Math.sqrt(Math.max(0, Ri * Ri - y * y));
+  ctx.beginPath();
+  for (const y of [-bh, bh]) {
+    const half = chord(y) / 2;
+    ctx.moveTo(cx - half, cy + y);
+    ctx.lineTo(cx + half, cy + y);
+  }
+  ctx.stroke();
+
   ctx.font = fontString(font, MEASURE_PX);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  const box = innerR * 1.2;
-  drawFittedGlyph(ctx, initials, cx, cy, box, box * 0.62, 0.7, 1.3);
+  drawFittedGlyph(ctx, date, cx, cy, chord(bh) * 0.82, bh * 2 * 0.62, 0.5, 1.4);
+
+  // 위: 이름, 아래: 문구
+  const regionH = Ri - bh;
+  const boxH = regionH * 0.5;
+  const yC = bh + regionH * 0.42;
+  const boxW = chord(yC + boxH / 2) * 0.92;
+  const name = lang === 'ko' ? chars.filter((c, i) => !(c === '인' && i === chars.length - 1)) : null;
+  if (lang === 'ko') {
+    drawCharGrid(ctx, { chars: name, cols: name.length, rows: 1, order: 'horizontal', cx, cy: cy - yC, w: Math.min(boxW, boxH * name.length * 1.1), h: boxH });
+  } else {
+    drawFittedGlyph(ctx, text.toUpperCase().trim(), cx, cy - yC, boxW, boxH * 0.8, 0.45, 1.4);
+  }
+  const label = dateLabel || (lang === 'ko' ? '확인' : 'APPROVED');
+  const labelChars = Array.from(label);
+  if (lang === 'ko' && /^[가-힣]+$/.test(label)) {
+    drawCharGrid(ctx, { chars: labelChars, cols: labelChars.length, rows: 1, order: 'horizontal', cx, cy: cy + yC, w: Math.min(boxW, boxH * labelChars.length * 1.1), h: boxH });
+  } else {
+    drawFittedGlyph(ctx, label, cx, cy + yC, boxW, boxH * 0.8, 0.45, 1.4);
+  }
+  return canvas;
 }
 
-// ───────────── 공통 ─────────────
+// ───────────── 효과 ─────────────
 
 function makeCanvas(w, h) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(w));
   c.height = Math.max(1, Math.ceil(h));
   return c;
-}
-
-function strokeEllipse(ctx, cx, cy, a, b) {
-  ctx.beginPath();
-  ctx.ellipse(cx, cy, Math.max(1, a), Math.max(1, b), 0, 0, Math.PI * 2);
-  ctx.stroke();
-}
-
-function strokeRoundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, w / 2, h / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.arcTo(x + w, y, x + w, y + h, rr);
-  ctx.arcTo(x + w, y + h, x, y + h, rr);
-  ctx.arcTo(x, y + h, x, y, rr);
-  ctx.arcTo(x, y, x + w, y, rr);
-  ctx.closePath();
-  ctx.stroke();
 }
 
 /** 작은 점을 지워 찍힌 도장 같은 질감을 낸다. 시드가 같으면 결과도 같다 */
@@ -296,6 +488,7 @@ function applyTexture(canvas, seed) {
   const unit = Math.min(w, h) / 400; // 크기와 상관없이 같은 모양이 되도록
   ctx.save();
   ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = '#000';
   const dots = Math.round((w * h) / (unit * unit) / 260);
   for (let i = 0; i < dots; i++) {
     const r = unit * (0.4 + rand() * rand() * 3.2);
@@ -304,7 +497,6 @@ function applyTexture(canvas, seed) {
     ctx.arc(rand() * w, rand() * h, r, 0, Math.PI * 2);
     ctx.fill();
   }
-  // 몇 군데는 잉크가 옅게 묻은 것처럼 넓게 흐리게 지운다
   const patches = 3 + Math.floor(rand() * 3);
   for (let i = 0; i < patches; i++) {
     const x = rand() * w;
@@ -318,6 +510,34 @@ function applyTexture(canvas, seed) {
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
   ctx.restore();
+}
+
+/** 잉크가 종이에 번진 듯 획 가장자리를 살짝 넓히고 흐리게 한다 (canvas filter 없이) */
+function applyBleed(canvas, mult) {
+  const out = makeCanvas(canvas.width, canvas.height);
+  const ctx = out.getContext('2d');
+  const r = Math.max(0.8, 1.6 * mult);
+  ctx.globalAlpha = 0.28;
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    ctx.drawImage(canvas, Math.cos(a) * r, Math.sin(a) * r);
+  }
+  ctx.globalAlpha = 1;
+  ctx.drawImage(canvas, 0, 0);
+  return out;
+}
+
+function rotateCanvas(canvas, deg) {
+  const rad = (deg * Math.PI) / 180;
+  const { width: w, height: h } = canvas;
+  const W = Math.abs(w * Math.cos(rad)) + Math.abs(h * Math.sin(rad));
+  const H = Math.abs(w * Math.sin(rad)) + Math.abs(h * Math.cos(rad));
+  const out = makeCanvas(W, H);
+  const ctx = out.getContext('2d');
+  ctx.translate(out.width / 2, out.height / 2);
+  ctx.rotate(rad);
+  ctx.drawImage(canvas, -w / 2, -h / 2);
+  return out;
 }
 
 function clamp(v, lo, hi) {

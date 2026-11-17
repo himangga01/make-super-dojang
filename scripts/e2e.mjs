@@ -1,6 +1,6 @@
-// 브라우저 확인: node scripts/e2e.mjs [스크린샷 폴더]
-// 로컬 서버를 띄우고 세 탭에서 생성·다운로드가 되는지, 투명 PNG 모서리가 투명한지 확인한다.
-import { spawn } from 'node:child_process';
+// 브라우저 확인: node scripts/e2e.mjs [결과 폴더]
+// 로컬 서버를 띄우고 모든 탭의 생성·저장 흐름을 실제 브라우저에서 확인한다.
+import { spawn, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -29,21 +29,22 @@ function check(cond, msg) {
   if (!cond) failed++;
 }
 
-/** PNG 파일의 크기와 네 모서리 알파값 */
-async function inspectPng(path) {
+/** 이미지 파일의 크기와 지정한 점들의 RGBA (음수 좌표는 오른쪽·아래 끝에서) */
+async function inspectImage(path, points = [[0, 0]]) {
   const b64 = readFileSync(path).toString('base64');
-  return page.evaluate(async (src) => {
+  const type = path.endsWith('.jpg') ? 'image/jpeg' : 'image/png';
+  return page.evaluate(async ({ src, type, points }) => {
     const img = new Image();
-    img.src = `data:image/png;base64,${src}`;
+    img.src = `data:${type};base64,${src}`;
     await img.decode();
     const c = document.createElement('canvas');
     c.width = img.width;
     c.height = img.height;
     const ctx = c.getContext('2d');
     ctx.drawImage(img, 0, 0);
-    const a = (x, y) => ctx.getImageData(x, y, 1, 1).data;
-    return { w: img.width, h: img.height, corner: Array.from(a(0, 0)), corner2: Array.from(a(img.width - 1, img.height - 1)) };
-  }, b64);
+    const px = points.map(([x, y]) => Array.from(ctx.getImageData(x < 0 ? img.width + x : x, y < 0 ? img.height + y : y, 1, 1).data));
+    return { w: img.width, h: img.height, px };
+  }, { src: b64, type, points });
 }
 
 async function saveDownload(trigger) {
@@ -53,10 +54,53 @@ async function saveDownload(trigger) {
   return { path, name: dl.suggestedFilename() };
 }
 
+/** 브라우저 안에서 테스트용 이미지를 만들어 파일 버퍼로 돌려준다 */
+async function makeImage(kind) {
+  const b64 = await page.evaluate((kind) => {
+    const c = document.createElement('canvas');
+    const ctx = c.getContext('2d');
+    if (kind === 'photo') {
+      // 그늘진 종이에 쓴 서명 사진 흉내
+      c.width = 900;
+      c.height = 500;
+      const g = ctx.createLinearGradient(0, 0, 900, 500);
+      g.addColorStop(0, '#9a958c');
+      g.addColorStop(1, '#f4f1ea');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 900, 500);
+      ctx.strokeStyle = '#1a2a6c';
+      ctx.lineWidth = 9;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(150, 320);
+      ctx.bezierCurveTo(250, 80, 330, 420, 430, 220);
+      ctx.bezierCurveTo(520, 60, 600, 380, 760, 260);
+      ctx.stroke();
+      for (let i = 0; i < 300; i++) { // 종이 잡티
+        ctx.fillStyle = 'rgba(80,70,60,0.5)';
+        ctx.fillRect(Math.random() * 900, Math.random() * 500, 1, 1);
+      }
+    } else {
+      c.width = 1240;
+      c.height = 1754;
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = '#222';
+      ctx.font = 'bold 60px sans-serif';
+      ctx.fillText('계약서', 520, 200);
+      ctx.font = '28px sans-serif';
+      for (let i = 0; i < 20; i++) ctx.fillRect(140, 320 + i * 50, 960, 6);
+      ctx.fillText('서명:', 700, 1500);
+    }
+    return c.toDataURL(kind === 'photo' ? 'image/jpeg' : 'image/png').split(',')[1];
+  }, kind);
+  return Buffer.from(b64, 'base64');
+}
+
 try {
   await page.goto(`http://localhost:${port}/`);
 
-  // 1) 직접 서명
+  // ── 1) 직접 서명: 그리기
   const pad = await page.locator('#pad').boundingBox();
   await page.mouse.move(pad.x + 40, pad.y + pad.height * 0.7);
   await page.mouse.down();
@@ -67,70 +111,107 @@ try {
   await page.mouse.up();
   await page.waitForFunction(() => !document.querySelector('#download').disabled, null, { timeout: 5000 }).catch(() => {});
   check(await page.locator('#download').isEnabled(), '직접 서명 후 다운로드 버튼 활성화');
-  await page.screenshot({ path: join(outDir, '1-draw.png'), fullPage: true });
   let file = await saveDownload(() => page.click('#download'));
-  let png = await inspectPng(file.path);
+  let img = await inspectImage(file.path, [[0, 0], [-1, -1]]);
   check(/^서명_\d{8}\.png$/.test(file.name), `직접 서명 파일 이름: ${file.name}`);
-  check(png.corner[3] === 0 && png.corner2[3] === 0, `투명 배경 모서리 알파 0 (${png.w}×${png.h})`);
+  check(img.px.every((p) => p[3] === 0), `투명 배경 모서리 알파 0 (${img.w}×${img.h})`);
+  await page.click('#save-library');
+  await page.waitForSelector('#library-grid .lib-item');
+  check((await page.locator('#library-grid .lib-item').count()) === 1, '보관함 저장');
+  await page.screenshot({ path: join(outDir, '1-draw.png'), fullPage: true });
 
-  // 2) 서명 생성 (한글)
+  // ── 2) 직접 서명: 사진에서 가져오기
+  await page.click('#panel-draw .seg label:nth-child(2)');
+  await page.setInputFiles('#photo-file', { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: await makeImage('photo') });
+  await page.waitForFunction(() => document.querySelector('#preview canvas'), null, { timeout: 10000 });
+  file = await saveDownload(() => page.click('#download'));
+  img = await inspectImage(file.path, [[0, 0], [-1, -1], [2, -3]]);
+  check(img.px.every((p) => p[3] === 0), `사진 서명 배경 제거 (${img.w}×${img.h})`);
+  check(img.w > 400 && img.w < 900 && img.h < 450, '사진 서명 영역만 잘라냄');
+  await page.screenshot({ path: join(outDir, '2-photo.png'), fullPage: true });
+
+  // ── 3) 서명 생성
   await page.click('#tab-sign');
   await page.fill('#sign-name', '홍길동');
   await page.click('#panel-sign button[type="submit"]');
-  await page.waitForSelector('#sign-results .card');
-  check((await page.locator('#sign-results .card').count()) === 8, '한글 서명 후보 8개');
+  await page.waitForFunction(() => document.querySelectorAll('#sign-results .card').length === 24);
+  check(true, '한글 서명 형태 24가지');
   check((await page.locator('#sign-results .card-warn').count()) === 0, '한글 서명 글꼴 모두 로드');
-  await page.locator('#sign-results .card-select').nth(1).click();
+  await page.locator('#sign-results .card-select').nth(4).click();
   await page.click('[data-bg="#ffffff"]');
   file = await saveDownload(() => page.click('#download'));
-  png = await inspectPng(file.path);
-  check(file.name.startsWith('서명_홍길동_'), `서명 파일 이름: ${file.name}`);
-  check(png.corner[3] === 255 && png.corner[0] === 255, '흰 배경 PNG 모서리 불투명 흰색');
-  await page.screenshot({ path: join(outDir, '2-sign-ko.png'), fullPage: true });
-
-  // 영문 서명 + 카드 바로 다운로드
+  img = await inspectImage(file.path);
+  check(file.name.startsWith('서명_홍길동_') && img.px[0][0] === 255 && img.px[0][3] === 255, `흰 배경 서명: ${file.name}`);
   await page.click('[data-bg="transparent"]');
+  file = await saveDownload(() => page.click('#sign-zip'));
+  const zipList = execFileSync('unzip', ['-Z1', file.path]).toString().trim().split('\n');
+  execFileSync('unzip', ['-tq', file.path]);
+  check(zipList.length === 24 && zipList[0].endsWith('.png'), `서명 전체 ZIP: ${file.name} (${zipList.length}개)`);
+  await page.screenshot({ path: join(outDir, '3-sign-ko.png'), fullPage: true });
+
   await page.fill('#sign-name', 'Jane Doe');
-  await page.waitForFunction(() => document.querySelectorAll('#sign-results .card').length === 8 && document.querySelector('#sign-results .card-label').textContent === 'Great Vibes');
-  await page.check('#sign-flourish');
+  await page.waitForFunction(() => document.querySelector('#sign-results .card-label')?.textContent.startsWith('Classic'));
+  check((await page.locator('#sign-results .card').count()) === 24, '영문 서명 형태 24가지');
   check((await page.locator('#sign-results .card-warn').count()) === 0, '영문 서명 글꼴 모두 로드');
-  file = await saveDownload(() => page.locator('#sign-results .card-dl').first().click());
-  png = await inspectPng(file.path);
-  check(file.name.startsWith('서명_Jane_Doe_') && png.corner[3] === 0, `카드 바로 다운로드: ${file.name}`);
-  await page.screenshot({ path: join(outDir, '3-sign-en.png'), fullPage: true });
+  file = await saveDownload(() => page.locator('#sign-results .card-dl').nth(21).click());
+  check(file.name.startsWith('서명_Jane_Doe_'), `카드 바로 다운로드: ${file.name}`);
 
-  // 영문 모드에 한글 입력 → 안내
-  await page.click('#panel-sign .seg label:nth-child(3)');
-  await page.fill('#sign-name', '홍길동');
-  await page.waitForSelector('#sign-results .error');
-  check(true, '영문 모드 한글 입력 안내');
-
-  // 3) 도장 생성 (한글)
+  // ── 4) 도장 생성
   await page.click('#tab-stamp');
   await page.fill('#stamp-name', '홍길동');
   await page.click('#panel-stamp button[type="submit"]');
-  await page.waitForSelector('#stamp-results .card');
-  check((await page.locator('#stamp-results .card').count()) === 12, '한글 도장 후보 12개');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 28);
+  check(true, '한글 도장 28가지');
   check((await page.locator('#stamp-results .card-warn').count()) === 0, '한글 도장 글꼴 모두 로드');
   await page.screenshot({ path: join(outDir, '4-stamp-ko.png'), fullPage: true });
-  await page.locator('#stamp-results .card-select').nth(4).click();
+  await page.click('#stamp-cats [data-cat="special"]');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 2);
+  check(true, '분류 필터 (둘레글자·날짜 2가지)');
+  await page.locator('#stamp-results .card-select').nth(1).click();
   await page.check('input[name="res"][value="2.5"]');
   file = await saveDownload(() => page.click('#download'));
-  png = await inspectPng(file.path);
-  check(file.name.startsWith('도장_홍길동_') && png.corner[3] === 0 && png.w > 900, `도장 고해상도 투명 PNG (${png.w}×${png.h})`);
+  img = await inspectImage(file.path);
+  check(file.name.startsWith('도장_홍길동_') && img.px[0][3] === 0 && img.w > 900, `날짜 도장 고해상도 투명 PNG (${img.w}×${img.h})`);
+  await page.click('#save-library');
+  await page.waitForFunction(() => document.querySelectorAll('#library-grid .lib-item').length === 2);
+  check(true, '도장 보관함 저장');
 
+  await page.click('#stamp-cats [data-cat="all"]');
   await page.check('#stamp-texture');
-  await page.selectOption('#stamp-order', 'vertical');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: join(outDir, '5-stamp-ko-texture.png'), fullPage: true });
+  await page.check('#stamp-bleed');
+  await page.click('details.more summary');
+  await page.locator('#stamp-rotation').fill('-8');
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(outDir, '5-stamp-effects.png'), fullPage: true });
 
-  // 영문 도장
   await page.fill('#stamp-name', 'Jane Doe');
-  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 8);
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 28 && document.querySelector('#stamp-font').dataset.lang === 'en');
   check(await page.locator('#stamp-order').isHidden(), '영문 도장에서 한글 전용 옵션 숨김');
-  await page.uncheck('#stamp-texture');
-  await page.waitForTimeout(400);
-  await page.screenshot({ path: join(outDir, '6-stamp-en.png'), fullPage: true });
+  check((await page.locator('#stamp-results .card-warn').count()) === 0, '영문 도장 글꼴 모두 로드');
+
+  // ── 5) 문서에 넣기
+  await page.click('#tab-doc');
+  check(await page.locator('#export-panel').isHidden(), '문서 탭에서는 저장 패널 숨김');
+  await page.setInputFiles('#doc-file', { name: 'contract.png', mimeType: 'image/png', buffer: await makeImage('doc') });
+  await page.waitForSelector('#doc-stage.has-doc');
+  await page.click('#doc-add [data-add="stamp"]');
+  await page.click('#doc-add [data-add="draw"]');
+  check((await page.locator('#doc-stage .overlay').count()) === 2, '문서에 도장·서명 올리기');
+  await page.locator('#library-grid [data-act="doc"]').first().click();
+  const libAdded = await page.waitForFunction(() => document.querySelectorAll('#doc-stage .overlay').length === 3, null, { timeout: 5000 }).then(() => true, () => false);
+  check(libAdded, '보관함 항목 문서에 올리기');
+  // 끌어서 옮기기
+  const ov = await page.locator('#doc-stage .overlay').first().boundingBox();
+  await page.mouse.move(ov.x + ov.width / 2, ov.y + ov.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(ov.x + ov.width / 2 - 60, ov.y + ov.height / 2 - 120, { steps: 5 });
+  await page.mouse.up();
+  const ov2 = await page.locator('#doc-stage .overlay').last().boundingBox(); // 선택하면 맨 위(마지막)로 간다
+  check(Math.abs(ov2.x - (ov.x - 60)) < 3 && Math.abs(ov2.y - (ov.y - 120)) < 3, '올린 항목 끌어서 옮기기');
+  await page.screenshot({ path: join(outDir, '6-doc.png'), fullPage: true });
+  file = await saveDownload(() => page.click('#doc-download'));
+  img = await inspectImage(file.path, [[5, 5]]);
+  check(file.name.startsWith('contract_서명완료_') && img.w === 1240 && img.h === 1754 && img.px[0][0] === 255, `완성 문서 원본 해상도 (${file.name})`);
 
   check(errors.length === 0, `콘솔 오류 없음 ${errors.length ? JSON.stringify(errors) : ''}`);
 } catch (err) {

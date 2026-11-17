@@ -1,36 +1,56 @@
 // 글꼴 목록과 로더. 글꼴 파일은 index.html 의 Google Fonts 링크로 선언한다.
+// 목록을 바꾼 뒤에는 node scripts/fonts-link.mjs 로 index.html 링크를 다시 만든다.
 
+/** 서명 글꼴. sizeFactor 는 글꼴마다 다른 기본 크기를 비슷하게 맞추는 값 */
 export const SIGNATURE_FONTS = {
-  ko: [
-    { family: 'Nanum Pen Script', weight: 400, label: '나눔손글씨 펜', sizeFactor: 1.1 },
-    { family: 'Nanum Brush Script', weight: 400, label: '나눔손글씨 붓', sizeFactor: 1.1 },
-    { family: 'East Sea Dokdo', weight: 400, label: '동해 독도', sizeFactor: 1.1 },
-    { family: 'Dokdo', weight: 400, label: '독도', sizeFactor: 1 },
-    { family: 'Gaegu', weight: 700, label: '개구', sizeFactor: 1 },
-    { family: 'Hi Melody', weight: 400, label: '하이멜로디', sizeFactor: 1 },
-    { family: 'Gamja Flower', weight: 400, label: '감자꽃', sizeFactor: 1 },
-    { family: 'Yeon Sung', weight: 400, label: '연성', sizeFactor: 1 },
-  ],
-  en: [
-    { family: 'Great Vibes', weight: 400, label: 'Great Vibes', sizeFactor: 1 },
-    { family: 'Dancing Script', weight: 600, label: 'Dancing Script', sizeFactor: 1 },
-    { family: 'Allura', weight: 400, label: 'Allura', sizeFactor: 1 },
-    { family: 'Sacramento', weight: 400, label: 'Sacramento', sizeFactor: 1 },
-    { family: 'Alex Brush', weight: 400, label: 'Alex Brush', sizeFactor: 1 },
-    { family: 'Mr Dafoe', weight: 400, label: 'Mr Dafoe', sizeFactor: 1 },
-    { family: 'Homemade Apple', weight: 400, label: 'Homemade Apple', sizeFactor: 1 },
-    { family: 'Caveat', weight: 600, label: 'Caveat', sizeFactor: 1 },
-  ],
+  'Nanum Pen Script': { weight: 400, label: '나눔손글씨 펜', sizeFactor: 1.15 },
+  'Nanum Brush Script': { weight: 400, label: '나눔손글씨 붓', sizeFactor: 1.15 },
+  'East Sea Dokdo': { weight: 400, label: '동해 독도', sizeFactor: 1.15 },
+  Dokdo: { weight: 400, label: '독도', sizeFactor: 1 },
+  Gaegu: { weight: 700, label: '개구', sizeFactor: 1 },
+  'Hi Melody': { weight: 400, label: '하이멜로디', sizeFactor: 1 },
+  'Gamja Flower': { weight: 400, label: '감자꽃', sizeFactor: 1 },
+  'Yeon Sung': { weight: 400, label: '연성', sizeFactor: 1 },
+  'Poor Story': { weight: 400, label: '푸어스토리', sizeFactor: 1 },
+  'Single Day': { weight: 400, label: '싱글데이', sizeFactor: 1 },
+  'Cute Font': { weight: 400, label: '귀여운체', sizeFactor: 1.15 },
+  'Kirang Haerang': { weight: 400, label: '기랑해랑', sizeFactor: 1 },
+  Stylish: { weight: 400, label: '스타일리시', sizeFactor: 1 },
+  'Black And White Picture': { weight: 400, label: '흑백사진', sizeFactor: 1.05 },
+  'Great Vibes': { weight: 400, label: 'Great Vibes', sizeFactor: 1 },
+  'Dancing Script': { weight: 600, label: 'Dancing Script', sizeFactor: 1 },
+  Allura: { weight: 400, label: 'Allura', sizeFactor: 1 },
+  Sacramento: { weight: 400, label: 'Sacramento', sizeFactor: 1.1 },
+  'Alex Brush': { weight: 400, label: 'Alex Brush', sizeFactor: 1 },
+  'Mr Dafoe': { weight: 400, label: 'Mr Dafoe', sizeFactor: 1 },
+  'Homemade Apple': { weight: 400, label: 'Homemade Apple', sizeFactor: 0.8 },
+  Caveat: { weight: 600, label: 'Caveat', sizeFactor: 1 },
+  'Pinyon Script': { weight: 400, label: 'Pinyon Script', sizeFactor: 0.95 },
+  'Herr Von Muellerhoff': { weight: 400, label: 'Herr Von Muellerhoff', sizeFactor: 1.15 },
+  'Monsieur La Doulaise': { weight: 400, label: 'Monsieur La Doulaise', sizeFactor: 1.1 },
+  'La Belle Aurore': { weight: 400, label: 'La Belle Aurore', sizeFactor: 0.9 },
+  Kristi: { weight: 400, label: 'Kristi', sizeFactor: 1.1 },
+  Satisfy: { weight: 400, label: 'Satisfy', sizeFactor: 1 },
+  Parisienne: { weight: 400, label: 'Parisienne', sizeFactor: 1 },
+  Yellowtail: { weight: 400, label: 'Yellowtail', sizeFactor: 1 },
+  'Rouge Script': { weight: 400, label: 'Rouge Script', sizeFactor: 1.05 },
+  'Mrs Saint Delafield': { weight: 400, label: 'Mrs Saint Delafield', sizeFactor: 1.1 },
+  'Cedarville Cursive': { weight: 400, label: 'Cedarville Cursive', sizeFactor: 0.9 },
+  'Reenie Beanie': { weight: 400, label: 'Reenie Beanie', sizeFactor: 1.1 },
+  'Marck Script': { weight: 400, label: 'Marck Script', sizeFactor: 1 },
 };
 
 export const STAMP_FONTS = {
   ko: [
     { family: 'Nanum Myeongjo', weight: 800, label: '나눔명조' },
+    { family: 'Noto Serif KR', weight: 900, label: '본명조' },
     { family: 'Song Myung', weight: 400, label: '송명' },
     { family: 'Black Han Sans', weight: 400, label: '검은고딕' },
     { family: 'Gowun Batang', weight: 700, label: '고운바탕' },
     { family: 'Do Hyeon', weight: 400, label: '도현' },
     { family: 'Hahmlet', weight: 700, label: '함렛' },
+    { family: 'Jua', weight: 400, label: '주아' },
+    { family: 'Gugi', weight: 400, label: '구기' },
     { family: 'Nanum Brush Script', weight: 400, label: '나눔손글씨 붓' },
   ],
   en: [
@@ -38,8 +58,17 @@ export const STAMP_FONTS = {
     { family: 'Playfair Display', weight: 700, label: 'Playfair' },
     { family: 'Libre Baskerville', weight: 700, label: 'Baskerville' },
     { family: 'Oswald', weight: 600, label: 'Oswald' },
+    { family: 'Special Elite', weight: 400, label: 'Typewriter' },
+    { family: 'Black Ops One', weight: 400, label: 'Stencil' },
+    { family: 'Bebas Neue', weight: 400, label: 'Bebas' },
   ],
 };
+
+export function signatureFont(family) {
+  const f = SIGNATURE_FONTS[family];
+  if (!f) throw new Error(`알 수 없는 서명 글꼴: ${family}`);
+  return { family, ...f };
+}
 
 export function fontString(font, px) {
   return `${font.weight} ${px}px "${font.family}", sans-serif`;
@@ -51,7 +80,7 @@ const loaded = new Map();
  * 글꼴과 글자를 미리 불러온다. 한글 글꼴은 글자 범위별로 나뉘어 있어 text 를 함께 넘겨야
  * 필요한 조각을 받는다. 시간 안에 못 받으면 false (대체 글꼴로 그려진다).
  */
-export async function loadFont(font, text, timeoutMs = 4000) {
+export async function loadFont(font, text, timeoutMs = 5000) {
   const key = `${font.family}|${font.weight}|${text}`;
   if (loaded.has(key)) return loaded.get(key);
   if (!document.fonts?.load) return true;
