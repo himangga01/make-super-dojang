@@ -39,15 +39,16 @@ export async function listItems() {
   return items.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+export const LIBRARY_LIMIT = MAX_ITEMS;
+
 export async function addItem({ kind, name, label, blob }) {
   const item = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, kind, name, label, blob, createdAt: Date.now() };
   await tx('readwrite', (s) => s.put(item));
   // 오래된 항목부터 정리해 너무 커지지 않게 한다
   const all = await listItems();
-  if (all.length > MAX_ITEMS) {
-    await tx('readwrite', (s) => all.slice(MAX_ITEMS).forEach((it) => s.delete(it.id)));
-  }
-  return item;
+  const removed = all.slice(MAX_ITEMS);
+  if (removed.length) await tx('readwrite', (s) => removed.forEach((it) => s.delete(it.id)));
+  return { item, removed }; // 지운 항목을 돌려줘 화면에서 알리고 되돌릴 수 있게 한다
 }
 
 export function removeItem(id) {

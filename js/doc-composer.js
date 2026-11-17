@@ -63,8 +63,12 @@ export class DocComposer {
     this.stage.append(o.el);
     this.#select(o);
     this.layout();
-    // 화면 밖에 놓이면 아무 일도 안 일어난 것처럼 보이므로 보이는 곳으로 옮긴다
-    o.el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    // 화면 밖에 놓이면 아무 일도 안 일어난 것처럼 보이므로 페이지를 스크롤한다.
+    // (scrollIntoView 는 무대 자체를 스크롤해 문서 윗부분이 영영 가려질 수 있어 쓰지 않는다)
+    const r = o.el.getBoundingClientRect();
+    if (r.top < 60 || r.bottom > window.innerHeight - 20) {
+      window.scrollTo({ top: window.scrollY + r.top + r.height / 2 - window.innerHeight / 2, behavior: 'smooth' });
+    }
     this.onChange();
     return o;
   }
@@ -97,8 +101,10 @@ export class DocComposer {
     const ratio = o.h / o.w;
     o.w = clamp(o.w, this.doc.width * 0.04, this.doc.width * 1.2);
     o.h = o.w * ratio;
-    o.x = clamp(o.x, -o.w * 0.5, this.doc.width - o.w * 0.5);
-    o.y = clamp(o.y, -o.h * 0.5, this.doc.height - o.h * 0.5);
+    o.w = Math.min(o.w, this.doc.width, this.doc.height / ratio);
+    o.h = o.w * ratio;
+    o.x = clamp(o.x, 0, this.doc.width - o.w);
+    o.y = clamp(o.y, 0, this.doc.height - o.h);
   }
 
   /** 원본 해상도로 합성한 캔버스 */
@@ -155,8 +161,8 @@ export class DocComposer {
       const start = { x: e.clientX, y: e.clientY, ox: o.x, oy: o.y };
       const move = (ev) => {
         const k = this.scale;
-        o.x = clamp(start.ox + (ev.clientX - start.x) / k, -o.w * 0.5, this.doc.width - o.w * 0.5);
-        o.y = clamp(start.oy + (ev.clientY - start.y) / k, -o.h * 0.5, this.doc.height - o.h * 0.5);
+        o.x = clamp(start.ox + (ev.clientX - start.x) / k, 0, this.doc.width - o.w);
+        o.y = clamp(start.oy + (ev.clientY - start.y) / k, 0, this.doc.height - o.h);
         this.layout();
       };
       const up = () => {
@@ -185,6 +191,7 @@ export class DocComposer {
         const d = Math.abs(dx) >= Math.abs(dy) ? dx : dy;
         o.w = clamp(start.w + d, this.doc.width * 0.04, this.doc.width * 1.2);
         o.h = o.w * ratio;
+        this.#clampOverlay(o);
         this.layout();
       };
       const up = () => {

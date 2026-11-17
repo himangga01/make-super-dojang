@@ -1,6 +1,6 @@
 // 오프라인 지원. 앱 파일은 네트워크 우선(새 버전을 바로 받음), 느리거나 실패하면 캐시를 쓴다.
 // 글꼴은 한 번 받은 뒤 캐시에서 바로 쓴다. 실패한 응답은 캐시하지 않는다.
-const VERSION = 'v3';
+const VERSION = 'v4';
 const APP_CACHE = `super-dojang-app-${VERSION}`;
 const FONT_CACHE = `super-dojang-fonts-${VERSION}`;
 const NETWORK_TIMEOUT_MS = 4000;
@@ -30,7 +30,9 @@ const APP_FILES = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(APP_CACHE).then((c) => c.addAll(APP_FILES)).then(() => self.skipWaiting()));
+  // 브라우저 HTTP 캐시의 예전 파일을 피해 서버에서 새로 받는다
+  const requests = APP_FILES.map((u) => new Request(u, { cache: 'reload' }));
+  event.waitUntil(caches.open(APP_CACHE).then((c) => c.addAll(requests)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -66,23 +68,37 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+/** 정상 응답만 저장한다: 같은 출처, 리디렉트 아님, 200 (공용 와이파이 로그인 페이지 등이 앱으로 저장되지 않게) */
+function cacheable(res) {
+  return res.ok && res.type === 'basic' && !res.redirected;
+}
+
+/** 쿼리 문자열마다 따로 쌓이지 않게 주소만으로 저장한다 */
+function cacheKey(request) {
+  const url = new URL(request.url);
+  url.search = '';
+  return url.href;
+}
+
 async function networkFirst(event, request) {
-  const cached = caches.match(request, { ignoreSearch: true });
+  const key = cacheKey(request);
+  const cached = caches.match(key);
   const network = fetch(request).then((res) => {
-    if (res.ok) {
-      // 본문을 읽기 전에 복제해야 한다 (응답을 돌려준 뒤에는 복제할 수 없다)
+    if (cacheable(res)) {
+      // 본문을 읽기 전에 복제한다. 응답이 끝난 뒤일 수 있어 waitUntil 대신 그냥 저장한다
       const copy = res.clone();
-      event.waitUntil(caches.open(APP_CACHE).then((c) => c.put(request, copy)));
+      caches.open(APP_CACHE).then((c) => c.put(key, copy)).catch(() => {});
     }
     return res;
   });
-  network.catch(() => {}); // 캐시로 응답한 뒤 네트워크가 실패해도 처리되지 않은 거부로 남지 않게
+  network.catch(() => {});
   // 네트워크가 느리면 캐시로 먼저 띄운다
   const timeout = new Promise((resolve) => setTimeout(resolve, NETWORK_TIMEOUT_MS));
   try {
     const first = await Promise.race([network, timeout]);
-    if (first) return first;
-    return (await cached) ?? (await network);
+    // 서버 오류(5xx 등)는 저장된 정상 사본이 있으면 그것을 보여 준다
+    if (first && first.ok) return first;
+    return (await cached) ?? first ?? (await network);
   } catch {
     const hit = await cached;
     if (hit) return hit;

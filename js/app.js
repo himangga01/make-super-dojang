@@ -1,4 +1,4 @@
-import { STAMP_FONTS, loadFonts, whenFontLoaded, signatureFont } from './fonts.js';
+import { STAMP_FONTS, loadFonts, whenFontLoaded, signatureFont, ensureFontCss } from './fonts.js';
 import { SIGNATURE_STYLES } from './signature-styles.js';
 import { SignaturePad } from './signature-pad.js';
 import { renderSignature, transformText } from './signature-gen.js';
@@ -44,6 +44,9 @@ const state = {
   drawItem: null,
   photoItem: null,
   zipBusy: { sign: false, stamp: false },
+  frozen: { sign: null, stamp: null }, // ZIP 을 만드는 동안 고정한 설정
+  paintToken: { sign: 0, stamp: 0 },
+  deleted: [], // 보관함에서 지운 항목 (되돌리기용)
   previewVersion: 0,
   shareCache: null, // { version, item, blob }
   exportVisible: false,
@@ -85,6 +88,7 @@ function selectTab(name, focus = false) {
 
 tabs.forEach((t, i) => {
   t.addEventListener('click', () => selectTab(t.dataset.tab));
+  if (t.dataset.tab === 'sign' || t.dataset.tab === 'stamp') t.addEventListener('pointerdown', () => ensureFontCss(), { once: true });
   t.addEventListener('keydown', (e) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
@@ -184,13 +188,13 @@ $('#photo-file').addEventListener('change', async (e) => {
 });
 
 let photoTimer = 0;
-$('#photo-offset').addEventListener('input', (e) => {
+$('#photo-offset').addEventListener('change', (e) => {
   clearTimeout(photoTimer);
   photoTimer = setTimeout(() => {
     // 슬라이더 오른쪽(강하게)일수록 배경을 더 지운다 = 경계값을 낮춘다
     photo.setOffset(-Number(e.target.value));
     refreshPhotoItem();
-  }, 120);
+  }, 0);
 });
 $('#photo-keep-color').addEventListener('change', updatePreview);
 
@@ -213,14 +217,16 @@ for (const target of ['sign', 'stamp']) {
   const input = nameInput(target);
   input.addEventListener('input', (e) => {
     updateCount(target);
-    // 한글 조합 중(홍→홍ㄱ→홍기…)에는 만들지 않는다. 조합이 끝나면 compositionend 에서 만든다
-    if (e.isComposing) return;
-    scheduleGenerate(target);
+    // 한글은 마지막 글자가 다른 곳을 누를 때까지 '조합 중'으로 남으므로 조합 중이라고 건너뛰면 안 된다.
+    // 대신 조합 중이면 조금 더 기다리고, 끝이 자음·모음 하나면(홍길ㄷ) 아직 덜 친 것으로 보고 건너뛴다
+    scheduleGenerate(target, e.isComposing ? 700 : 350);
   });
   input.addEventListener('compositionend', () => {
     updateCount(target);
-    scheduleGenerate(target, 500);
+    scheduleGenerate(target, 250);
   });
+  // 글꼴 CSS 를 미리 켜 두면 첫 후보가 빨리 나온다
+  input.addEventListener('focus', () => ensureFontCss(), { once: true });
   document.querySelector(`form[data-target="${target}"]`).addEventListener('submit', (e) => {
     e.preventDefault();
     clearTimeout(debounceTimers[target]);
@@ -235,8 +241,15 @@ function updateCount(target) {
 
 // 슬라이더: 움직이는 동안에는 선택한 항목 미리보기만, 손을 떼면 카드 전체를 다시 그린다 (저사양 폰 배려)
 for (const [id, target] of [['#sign-slant', 'sign'], ['#sign-weight', 'sign'], ['#stamp-rotation', 'stamp']]) {
-  $(id).addEventListener('input', () => updatePreview());
+  $(id).addEventListener('input', () => liveUpdate(target));
   $(id).addEventListener('change', () => rerenderCards(target));
+}
+
+/** 끌고 있는 동안: 고른 카드와 미리보기만 다시 그린다 (전체 카드는 손을 뗄 때) */
+function liveUpdate(target) {
+  const item = state[target].selected;
+  if (item) redrawCard(target, item);
+  updatePreview();
 }
 $('#stamp-rotation').addEventListener('input', (e) => { $('#stamp-rotation-out').textContent = `${e.target.value}°`; });
 
@@ -260,6 +273,24 @@ catBox.querySelectorAll('.chip').forEach((b) =>
 );
 enhanceRadioGroup(catBox);
 syncRadioTabindex(catBox);
+
+// ───────────── 옵션 ─────────────
+
+/** 카드를 그릴 때 쓰는 설정. ZIP 을 만드는 동안에는 시작할 때 값으로 고정해 결과가 섞이지 않게 한다 */
+function opts(target) {
+  if (state.frozen[target]) return state.frozen[target];
+  if (target === 'sign') {
+    return { ink: state.ink.sign, slant: Number($('#sign-slant').value), weight: Number($('#sign-weight').value) };
+  }
+  return {
+    ink: state.ink.stamp,
+    order: $('#stamp-order').value,
+    texture: $('#stamp-texture').checked,
+    bleed: $('#stamp-bleed').checked,
+    rotation: Number($('#stamp-rotation').value),
+    date: dotDate($('#stamp-date').value),
+  };
+}
 
 // ───────────── 생성 ─────────────
 
@@ -297,8 +328,9 @@ async function generate(target, { focusResults = false } = {}) {
   const items = specs.map((spec) => ({ ...spec, kind: KIND_BY_TARGET[target], name, fontOk: okByFamily.get(spec.font.family) }));
   setResults(target, items);
   selectItem(target, items.find((it) => it.id === prevId) ?? items[0] ?? null);
-  announce(`${target === 'sign' ? '서명' : '도장'} 후보 ${items.length}가지를 만들었어요.`);
+  // 결과 제목으로 초점을 옮기면 제목이 읽히므로 따로 알리지 않는다 (두 번 읽히지 않게)
   if (focusResults) $(`#${target}-count-label`).focus(); // 모바일 키보드를 닫고 결과로 이동
+  else announce(`${target === 'sign' ? '서명' : '도장'} 후보 ${items.length}가지를 만들었어요.`);
 
   // 시간 안에 못 받은 글꼴은 도착하는 대로 해당 카드를 다시 그린다
   for (const font of fonts.filter((f) => !okByFamily.get(f.family))) {
@@ -322,15 +354,10 @@ function signatureSpecs(name, lang) {
       font,
       label: style.label,
       sub: font.label,
-      render: (mult) =>
-        renderSignature({
-          text: name,
-          style,
-          ink: state.ink.sign,
-          slantAdjust: Number($('#sign-slant').value),
-          weight: Number($('#sign-weight').value),
-          mult,
-        }),
+      render: (mult) => {
+        const o = opts('sign');
+        return renderSignature({ text: name, style, ink: o.ink, slantAdjust: o.slant, weight: o.weight, mult });
+      },
     };
   });
   const text = name + transformText(name, 'monogram') + transformText(name, 'first-initial');
@@ -353,23 +380,7 @@ function stampSpecs(name, lang) {
       font,
       label: shape.label,
       sub: font.label,
-      render: (mult) =>
-        renderStamp({
-          lang,
-          chars: list,
-          baseChars,
-          text: name,
-          shape,
-          font,
-          order: $('#stamp-order').value,
-          ink: state.ink.stamp,
-          texture: $('#stamp-texture').checked,
-          bleed: $('#stamp-bleed').checked,
-          rotation: Number($('#stamp-rotation').value),
-          date: dotDate($('#stamp-date').value),
-          dateLabel,
-          mult,
-        }),
+      render: (mult) => renderStamp({ lang, chars: list, baseChars, text: name, shape, font, dateLabel, mult, ...opts('stamp') }),
     };
   });
   const text = `${list.join('')}${name}${name.toUpperCase()}★0123456789.${dateLabel || '확인APPROVED'}`;
@@ -403,9 +414,10 @@ function setResults(target, items, message, isError = false) {
   const s = state[target];
   s.items = items;
   const container = $(`#${target}-results`);
+  container.querySelectorAll('canvas').forEach((c) => { c.width = c.height = 0; }); // 이전 카드 그림을 바로 놓아 준다
   container.innerHTML = '';
   $(`#${target}-zip`).disabled = !items.length || state.zipBusy[target];
-  $(`#${target}-count-label`).textContent = items.length ? `${items.length}가지` : '';
+  $(`#${target}-count-label`).textContent = items.length ? `${target === 'sign' ? '서명' : '도장'} 후보 ${items.length}가지` : '';
   if (!items.length) {
     const p = document.createElement('p');
     p.className = isError ? 'error' : 'empty';
@@ -424,14 +436,15 @@ function setResults(target, items, message, isError = false) {
     sel.className = 'card-select';
     sel.setAttribute('aria-pressed', 'false');
     sel.setAttribute('aria-label', `${item.label}, ${item.sub}`);
-    sel.append(item.render(CARD_MULT[target]));
     sel.addEventListener('click', () => selectItem(target, item));
 
     const foot = document.createElement('div');
     foot.className = 'card-foot';
     const label = document.createElement('span');
     label.className = 'card-label';
-    label.textContent = `${item.label} · ${item.sub}`;
+    label.innerHTML = '<span class="name"></span><span class="sub"></span>';
+    label.querySelector('.name').textContent = item.label;
+    label.querySelector('.sub').textContent = item.sub;
     label.setAttribute('aria-hidden', 'true');
     const dl = document.createElement('button');
     dl.type = 'button';
@@ -458,14 +471,35 @@ function setResults(target, items, message, isError = false) {
     frag.append(card);
   }
   container.append(frag);
+  paintCards(target, items);
+}
+
+/**
+ * 카드 그림을 한 번에 다 그리면 저사양 폰에서 0.5~1초 멈춘다. 한 프레임에 약 12ms 만큼씩 나눠 그리고,
+ * 고른 카드를 먼저 그린다. 새로 그리기 시작하면 이전 작업은 멈춘다.
+ */
+function paintCards(target, items) {
+  const token = ++state.paintToken[target];
+  const selected = state[target].selected;
+  const queue = selected && items.includes(selected) ? [selected, ...items.filter((x) => x !== selected)] : items.slice();
+  const step = () => {
+    if (token !== state.paintToken[target]) return;
+    const until = performance.now() + 12;
+    while (queue.length && performance.now() < until) redrawCard(target, queue.shift());
+    if (queue.length) requestAnimationFrame(step);
+  };
+  step();
 }
 
 function redrawCard(target, item) {
-  const old = item.el?.querySelector('canvas');
+  if (!item.el) return;
+  const next = item.render(CARD_MULT[target]);
+  const old = item.el.querySelector('canvas');
   if (old) {
-    const next = item.render(CARD_MULT[target]);
     old.replaceWith(next);
     old.width = old.height = 0;
+  } else {
+    item.el.append(next);
   }
 }
 
@@ -476,7 +510,7 @@ function rerenderCards(target) {
   rerenderQueued[target] = true;
   requestAnimationFrame(() => {
     rerenderQueued[target] = false;
-    for (const item of state[target].items) redrawCard(target, item);
+    paintCards(target, state[target].items);
     if (state.tab === target) updatePreview();
   });
 }
@@ -484,7 +518,10 @@ function rerenderCards(target) {
 function selectItem(target, item) {
   const s = state[target];
   s.selected = item;
-  for (const it of s.items) it.el?.setAttribute('aria-pressed', String(it === item));
+  for (const it of s.items) {
+    it.el?.setAttribute('aria-pressed', String(it === item));
+    it.card?.classList.toggle('selected', it === item);
+  }
   if (state.tab === target) updatePreview();
   else updateDocButtons();
 }
@@ -504,11 +541,13 @@ function renderInkSwatches() {
       .join('') +
     `<label class="swatch custom${isPreset ? '' : ' active'}" title="직접 고르기"><input type="color" value="${isPreset ? '#7a3cff' : current}" aria-label="잉크 색 직접 고르기"></label>`;
   box.querySelectorAll('[data-ink]').forEach((b) => b.addEventListener('click', () => setInk(b.dataset.ink)));
-  box.querySelector('input[type="color"]').addEventListener('input', (e) => setInk(e.target.value, true));
+  const picker = box.querySelector('input[type="color"]');
+  picker.addEventListener('input', (e) => setInk(e.target.value, true, { live: true }));
+  picker.addEventListener('change', (e) => setInk(e.target.value, true));
   syncRadioTabindex(box);
 }
 
-function setInk(color, custom = false) {
+function setInk(color, custom = false, { live = false } = {}) {
   if (!isHexColor(color)) return;
   const key = inkKey();
   state.ink[key] = color;
@@ -519,6 +558,8 @@ function setInk(color, custom = false) {
   if (key === 'draw') {
     pad.redraw();
     updatePreview();
+  } else if (live) {
+    liveUpdate(key);
   } else {
     rerenderCards(key);
   }
@@ -557,7 +598,7 @@ function currentItem(tab = state.tab) {
 }
 
 const exportScale = (item) => item.exportScale?.(state.res) ?? state.res;
-const buildOutput = (item, bg = state.bg) => finalize(item.render(state.res), bg);
+const buildOutput = (item, bg = state.bg, res = state.res) => finalize(item.render(res), bg);
 
 let previewQueued = false;
 function updatePreview() {
@@ -595,8 +636,8 @@ function emptyMessage() {
   return '먼저 이름을 입력해 주세요.';
 }
 
-async function outputBlob(item) {
-  const out = item && buildOutput(item);
+async function outputBlob(item, { bg = state.bg, res = state.res } = {}) {
+  const out = item && buildOutput(item, bg, res);
   if (!out) throw new Error('empty');
   const blob = await toPngBlob(out);
   out.width = out.height = 0;
@@ -643,14 +684,14 @@ function prepareShare(item) {
   if (!SHARE_SUPPORTED) return;
   clearTimeout(shareTimer);
   state.shareCache = null;
-  if (!item) return;
+  if (!item || !state.exportVisible) return; // 저장 패널을 보고 있을 때만 (공유하지 않는 사람의 폰을 덜 바쁘게)
   const version = state.previewVersion;
   shareTimer = setTimeout(async () => {
     try {
       const blob = await outputBlob(item);
       if (version === state.previewVersion) state.shareCache = { version, item, blob };
     } catch { /* 공유할 때 다시 만든다 */ }
-  }, 600);
+  }, 1500);
 }
 
 async function share() {
@@ -678,9 +719,14 @@ $('#share').hidden = !SHARE_SUPPORTED;
 // ───────────── 빠른 저장 바 ─────────────
 // 후보 카드 아래에 있는 저장 패널은 휴대폰에서 2~3화면 아래라, 고르면 화면 아래에 바로 저장 버튼을 띄운다.
 
+function quickbarWanted() {
+  const typing = document.activeElement?.matches?.('input[type="text"]');
+  return (state.tab === 'sign' || state.tab === 'stamp') && Boolean(currentItem()) && !state.exportVisible && !typing;
+}
+
 function updateQuickbar(out) {
   const bar = $('#quickbar');
-  const show = Boolean(out) && state.tab !== 'doc' && !state.exportVisible;
+  const show = Boolean(out) && quickbarWanted();
   bar.hidden = !show;
   document.body.classList.toggle('has-quickbar', show);
   if (!out) return;
@@ -694,21 +740,24 @@ function updateQuickbar(out) {
   thumb.append(c);
 }
 
+function syncQuickbar() {
+  const show = quickbarWanted();
+  $('#quickbar').hidden = !show;
+  document.body.classList.toggle('has-quickbar', show);
+}
+// 저장 패널의 다운로드 버튼이 화면에 보이면 빠른 저장 바는 필요 없다
 new IntersectionObserver((entries) => {
   state.exportVisible = entries.some((e) => e.isIntersecting);
-  const bar = $('#quickbar');
-  if (state.exportVisible) {
-    bar.hidden = true;
-    document.body.classList.remove('has-quickbar');
-  } else if (currentItem() && state.tab !== 'doc') {
-    bar.hidden = false;
-    document.body.classList.add('has-quickbar');
-  }
-}, { threshold: 0.25 }).observe($('#preview'));
+  syncQuickbar();
+  if (state.exportVisible) prepareShare(currentItem());
+}).observe($('#download'));
+document.addEventListener('focusin', syncQuickbar);
+document.addEventListener('focusout', () => setTimeout(syncQuickbar, 0));
 
 $('#quick-download').addEventListener('click', () => download());
 $('#quick-more').addEventListener('click', () => {
-  $('#export-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  // 패널 맨 위가 아니라 미리보기와 다운로드 버튼이 함께 보이게 옮긴다 (가로 모드 포함)
+  $('#preview').scrollIntoView({ behavior: 'smooth', block: 'center' });
   $('#export-title').setAttribute('tabindex', '-1');
   $('#export-title').focus({ preventScroll: true });
 });
@@ -721,6 +770,8 @@ async function downloadZip(target) {
   // 만드는 도중 이름·분류를 바꿔도 섞이지 않도록 시작할 때의 목록과 설정을 고정한다
   const items = s.items.slice();
   const name = items[0].name;
+  const snapshot = { bg: state.bg, res: state.res };
+  state.frozen[target] = { ...opts(target) }; // 만드는 도중 색·기울기·효과를 바꿔도 이 ZIP 에는 반영하지 않는다
   const button = $(`#${target}-zip`);
   state.zipBusy[target] = true;
   button.disabled = true;
@@ -729,7 +780,7 @@ async function downloadZip(target) {
     const names = uniqueNames(items.map((it, i) => `${String(i + 1).padStart(2, '0')}_${sanitizeFilePart(`${it.label}_${it.sub}`)}.png`));
     for (let i = 0; i < items.length; i++) {
       setStatus(`이미지를 묶는 중… ${i + 1}/${items.length}`, { sticky: true });
-      const blob = await outputBlob(items[i]);
+      const blob = await outputBlob(items[i], snapshot);
       files.push({ name: names[i], data: new Uint8Array(await blob.arrayBuffer()) });
       await new Promise((r) => setTimeout(r, 0)); // 화면이 멈추지 않게 한 장마다 쉬어 간다
     }
@@ -742,6 +793,7 @@ async function downloadZip(target) {
     setStatus('ZIP 파일을 만들지 못했어요.', { error: true });
   } finally {
     state.zipBusy[target] = false;
+    state.frozen[target] = null;
     button.disabled = !s.items.length;
   }
 }
@@ -765,7 +817,7 @@ async function renderLibrary() {
   libraryUrls.forEach((u) => URL.revokeObjectURL(u));
   libraryUrls = [];
   $('#library-count').textContent = items.length ? `${items.length}개` : '';
-  $('#library-clear').hidden = !items.length;
+  $('#library-clear').hidden = !items.length && !hasSavedNames();
   if (!items.length) {
     grid.innerHTML = '<p class="empty">저장한 서명·도장이 여기에 모여요.</p>';
     return;
@@ -803,14 +855,25 @@ async function renderLibrary() {
     });
     el.querySelector('[data-act="del"]').addEventListener('click', async () => {
       await library.removeItem(it.id);
+      state.deleted.push(it);
       await renderLibrary();
-      // 실수로 지웠을 때 되돌릴 수 있게 잠시 기회를 준다
-      setStatus('보관함에서 삭제했어요.', {
-        action: { label: '되돌리기', run: async () => { await library.restoreItem(it); renderLibrary(); } },
+      $('#library-title').focus(); // 지운 버튼이 사라지므로 초점을 보관함 제목으로
+      // 연달아 지워도 모두 되돌릴 수 있게 지운 항목을 쌓아 둔다
+      const n = state.deleted.length;
+      setStatus(n > 1 ? `보관함에서 ${n}개를 삭제했어요.` : '보관함에서 삭제했어요.', {
+        action: { label: '되돌리기', run: restoreDeleted },
       });
     });
     grid.append(el);
   }
+}
+
+async function restoreDeleted() {
+  const items = state.deleted.splice(0);
+  for (const it of items) await library.restoreItem(it);
+  await renderLibrary();
+  $('#library-title').focus();
+  setStatus(`${items.length}개를 되살렸어요.`);
 }
 
 $('#save-library').addEventListener('click', async () => {
@@ -821,10 +884,17 @@ $('#save-library').addEventListener('click', async () => {
     const out = buildOutput(item, null);
     const blob = await toPngBlob(out);
     out.width = out.height = 0;
-    await library.addItem({ kind: item.kind, name: item.name ?? '', label: item.label, blob });
+    const { removed } = await library.addItem({ kind: item.kind, name: item.name ?? '', label: item.label, blob });
     navigator.storage?.persist?.().catch(() => {}); // 브라우저가 오래된 저장 데이터를 지우지 않도록 요청
     await renderLibrary();
-    setStatus('보관함에 저장했어요.');
+    if (removed.length) {
+      state.deleted.push(...removed);
+      setStatus(`보관함이 가득 차(${library.LIBRARY_LIMIT}개) 가장 오래된 ${removed.length}개를 지웠어요.`, {
+        action: { label: '되돌리기', run: restoreDeleted },
+      });
+    } else {
+      setStatus('보관함에 저장했어요.');
+    }
   } catch (err) {
     console.error(err);
     setStatus('보관함에 저장하지 못했어요. 사생활 보호 모드이거나 저장 공간이 부족할 수 있어요.', { error: true });
@@ -832,12 +902,24 @@ $('#save-library').addEventListener('click', async () => {
 });
 
 $('#library-clear').addEventListener('click', async () => {
-  if (!window.confirm('보관함의 서명·도장과 기억해 둔 이름을 모두 지울까요? 되돌릴 수 없어요.')) return;
+  if (!window.confirm('보관함의 서명·도장, 입력한 이름, 받아 둔 글꼴을 모두 지울까요? 되돌릴 수 없어요.')) return;
   try {
     await library.clearItems();
+    state.deleted = [];
     localStorage.removeItem(NAMES_KEY);
+    // 화면에 남은 이름과 후보도 지워야 다른 동작에서 이름이 다시 저장되지 않는다
+    for (const target of ['sign', 'stamp']) {
+      nameInput(target).value = '';
+      updateCount(target);
+      state[target].token++;
+      setResults(target, [], target === 'sign' ? '이름을 입력하면 서명 후보 24가지가 나타나요.' : `이름을 입력하면 도장 후보 ${STAMP_SHAPES.length}가지가 나타나요.`);
+    }
+    // 글꼴 캐시에는 입력한 글자가 어느 범위인지 흔적이 남으므로 함께 지운다
+    if ('caches' in window) {
+      for (const key of await caches.keys()) if (key.startsWith('super-dojang-fonts')) await caches.delete(key);
+    }
     await renderLibrary();
-    setStatus('보관함과 기억해 둔 이름을 지웠어요.');
+    setStatus('보관함, 이름, 글꼴 캐시를 모두 지웠어요.');
   } catch (err) {
     console.error(err);
     setStatus('지우지 못했어요.', { error: true });
@@ -908,13 +990,13 @@ $('#doc-download').addEventListener('click', async () => {
 function updateDocButtons() {
   if (!state.ready) return; // 시작 전에는 composer 가 아직 없다
   const has = composer.hasDocument;
-  let anyMissing = false;
+  let allMissing = true;
   for (const b of $$('#doc-add [data-add]')) {
     const missing = !currentItem(b.dataset.add);
-    anyMissing ||= missing;
+    if (!missing) allMissing = false;
     b.disabled = !has || missing;
   }
-  $('#doc-add-hint').hidden = !anyMissing;
+  $('#doc-add-hint').hidden = !allMissing;
   $('#doc-download').disabled = !has;
   $('#doc-clear').disabled = !has || composer.overlays.length === 0;
 }
@@ -934,6 +1016,7 @@ function setStatus(text, { error = false, sticky = false, action = null } = {}) 
   const btn = $('#status-action');
   btn.hidden = !action;
   btn.onclick = null;
+  el.classList.toggle('has-action', Boolean(action));
   if (action) {
     btn.textContent = action.label;
     btn.onclick = () => {
@@ -942,7 +1025,18 @@ function setStatus(text, { error = false, sticky = false, action = null } = {}) 
     };
   }
   clearTimeout(statusTimer);
-  if (!sticky) statusTimer = setTimeout(() => el.classList.remove('show'), action ? 6000 : error ? 5000 : 3500);
+  statusDelay = action ? 8000 : error ? 5000 : 3500;
+  if (!sticky) statusTimer = setTimeout(hideStatus, statusDelay);
+}
+let statusDelay = 3500;
+function hideStatus() {
+  const el = $('#status');
+  // 되돌리기 버튼에 초점이 있거나 마우스가 올라가 있으면 기다린다
+  if (el.matches(':hover') || el.contains(document.activeElement)) {
+    statusTimer = setTimeout(hideStatus, 1500);
+    return;
+  }
+  el.classList.remove('show');
 }
 
 /** 화면에는 띄우지 않고 스크린리더에만 알린다 */
@@ -962,9 +1056,18 @@ function dotDate(iso) {
 }
 
 const NAMES_KEY = 'super-dojang:names';
+function hasSavedNames() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(NAMES_KEY) ?? '{}');
+    return Boolean(saved.sign || saved.stamp);
+  } catch {
+    return false;
+  }
+}
 function saveNames() {
   try {
     localStorage.setItem(NAMES_KEY, JSON.stringify({ sign: nameInput('sign').value, stamp: nameInput('stamp').value }));
+    $('#library-clear').hidden = false;
   } catch { /* 저장 못 해도 동작에는 지장 없다 */ }
 }
 /** 이름만 채워 두고, 실제 생성(글꼴 다운로드)은 그 탭을 열 때 한다 */
@@ -975,6 +1078,8 @@ function restoreNames() {
       if (saved[target]) {
         nameInput(target).value = saved[target];
         updateCount(target);
+        // 곧 쓸 가능성이 높으니 글꼴 CSS 를 쉬는 시간에 미리 켜 둔다
+        setTimeout(() => ensureFontCss(), 1200);
       }
     }
   } catch { /* 무시 */ }

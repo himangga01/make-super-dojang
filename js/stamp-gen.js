@@ -82,7 +82,7 @@ export function renderStamp(o) {
 
 function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink, bleed = false, mult = 1 }) {
   const S = BASE * mult;
-  const content = lang === 'ko' ? koContent(chars, shape.layout) : enContent(text, shape.layout);
+  const content = lang === 'ko' ? koContent(chars, shape.layout, shape) : enContent(text, shape.layout);
   const { W, H } = frameSize(shape, S, lang, content);
 
   const border = shape.outline === 'none' ? 0 : Math.max(2, S * 0.034) * (shape.thick ? 2 : 1);
@@ -148,17 +148,35 @@ function drawFramed({ lang, chars, text, shape, font, order = 'horizontal', ink,
   ctx.textBaseline = 'alphabetic';
   if (lang === 'ko') {
     const gridOrder = shape.layout === 'row' ? 'horizontal' : order;
-    drawCharGrid(ctx, { chars, cols: content.cols, rows: content.rows, order: gridOrder, cx, cy, w: area.w, h: area.h, fill, centerLastRow: !shape.dividers });
+    if (content.three) drawThree(ctx, { chars, order: gridOrder, cx, cy, w: area.w, h: area.h, fill });
+    else drawCharGrid(ctx, { chars, cols: content.cols, rows: content.rows, order: gridOrder, cx, cy, w: area.w, h: area.h, fill, centerLastRow: !shape.dividers });
   } else {
-    drawLines(ctx, content.lines, cx, cy, area.w, area.h);
+    drawLines(ctx, content.lines, cx, cy, area.w, area.h, { bands: Boolean(shape.dividers) });
   }
   ctx.globalCompositeOperation = 'source-over';
   return canvas;
 }
 
-function koContent(chars, layout) {
+function koContent(chars, layout, shape) {
+  // 3자(성+이름 두 자)를 1열 3행으로 쓰면 원·사각 가운데에 가는 띠만 남아 양옆이 빈다.
+  // 전통 배치처럼 성을 한 칸 크게, 이름 두 자를 나란히 둔다 (칸 나눔선이 있는 모양은 제외)
+  if (layout === 'grid' && chars.length === 3 && !shape?.dividers) return { cols: 2, rows: 2, n: 3, three: true };
   const { cols, rows } = gridFor(chars.length, layout);
   return { cols, rows, n: chars.length };
+}
+
+/** 3자 배치. 세로(전통): 오른쪽 열에 성, 왼쪽 열 위아래에 이름. 가로: 윗줄에 성, 아랫줄에 이름 두 자 */
+function drawThree(ctx, { chars, order, cx, cy, w, h, fill }) {
+  const [a, b, c] = chars;
+  if (order === 'vertical') {
+    drawFittedGlyph(ctx, a, cx + w / 4, cy, (w / 2) * fill, h * fill * 0.94, 0.45, 1.6); // 세로로 길게 늘린다
+    drawFittedGlyph(ctx, b, cx - w / 4, cy - h / 4, (w / 2) * fill, (h / 2) * fill);
+    drawFittedGlyph(ctx, c, cx - w / 4, cy + h / 4, (w / 2) * fill, (h / 2) * fill);
+  } else {
+    drawFittedGlyph(ctx, a, cx, cy - h / 4, w * fill * 0.94, (h / 2) * fill, 0.45, 1.6);
+    drawFittedGlyph(ctx, b, cx - w / 4, cy + h / 4, (w / 2) * fill, (h / 2) * fill);
+    drawFittedGlyph(ctx, c, cx + w / 4, cy + h / 4, (w / 2) * fill, (h / 2) * fill);
+  }
 }
 
 /** 영문은 글자 칸 대신 줄 단위로 배치한다 */
@@ -185,7 +203,7 @@ function frameSize(shape, S, lang, content) {
       const H = S * 0.56;
       return { W: H * clamp(units * 0.85 + 0.7, 1.6, 4.8), H };
     }
-    const H = S * 0.42;
+    const H = S * (shape.inverted ? 0.5 : 0.42);
     return { W: H * clamp(units * 0.95 + 0.35, 1.6, 6), H };
   }
   if (shape.layout === 'column') {
@@ -330,34 +348,42 @@ function drawCharGrid(ctx, { chars, cols, rows, order, cx, cy, w, h, fill = 0.9,
   });
 }
 
-function drawLines(ctx, lines, cx, cy, w, h) {
-  // 줄마다 따로 맞추면 짧은 줄만 크게 늘어나 높이가 들쭉날쭉해진다. 세로 배율은 모든 줄이 같게 한다
+/**
+ * 영문 여러 줄. 모든 줄의 세로 배율을 같게 해 글자 높이를 맞추고,
+ * 줄마다 실제로 잰 위·아래 끝(악센트, J·Q 꼬리 포함)으로 자리를 잡아 테두리나 다음 줄에 닿지 않게 한다.
+ * bands 가 참이면 줄마다 같은 높이의 칸(칸 나눔선 사이) 안에 넣는다.
+ */
+function drawLines(ctx, lines, cx, cy, w0, h0, { bands = false } = {}) {
+  const w = w0 * 0.92; // 한글 격자처럼 안쪽 여백을 둔다
+  const h = h0 * 0.92;
   const ms = lines.map((line) => {
     const m = ctx.measureText(line);
-    const left = m.actualBoundingBoxLeft ?? 0;
-    const right = m.actualBoundingBoxRight ?? m.width;
-    return { left, right, gw: left + right };
+    return {
+      left: m.actualBoundingBoxLeft ?? 0,
+      right: m.actualBoundingBoxRight ?? m.width,
+      ascent: m.actualBoundingBoxAscent ?? MEASURE_PX * 0.75,
+      descent: m.actualBoundingBoxDescent ?? 0,
+    };
   });
-  const cap = MEASURE_PX * 0.72; // 대문자 높이 근사: 줄 높이를 글자마다 다르게 재지 않도록 고정
-  const gap = 0.22; // 줄 사이 (글자 높이 대비)
   const n = lines.length;
-  let sy = h / (cap * (n + gap * (n - 1)));
-  // 가로 배율은 줄마다 다르되 세로 배율의 0.45~1.5배 안에서. 폭이 모자라면 세로 배율을 낮춘다
-  for (const m of ms) {
-    const sxNeeded = w / m.gw;
-    if (sxNeeded < sy * 0.45) sy = sxNeeded / 0.45;
-  }
-  const lineH = cap * sy;
-  const total = lineH * n + lineH * gap * (n - 1);
+  const gap = MEASURE_PX * 0.16; // 줄 사이 (배율 적용 전)
+  let sy = bands
+    ? Math.min(...ms.map((m) => ((h / n) * 0.86) / (m.ascent + m.descent)))
+    : h / (ms.reduce((t, m) => t + m.ascent + m.descent, 0) + gap * (n - 1));
+  // 너무 좁아지지 않게: 가로 배율이 세로의 0.45배보다 작아야 하면 세로 배율을 낮춘다
+  for (const m of ms) sy = Math.min(sy, w / (m.left + m.right) / 0.45);
+  const xs = ms.map((m) => Math.min(w / (m.left + m.right), sy * 1.15)); // 짧은 줄을 지나치게 넓히지 않는다
+
+  let y = bands ? cy - h / 2 : cy - (ms.reduce((t, m) => t + (m.ascent + m.descent) * sy, 0) + gap * sy * (n - 1)) / 2;
   ms.forEach((m, i) => {
-    const sx = Math.min(w / m.gw, sy * 1.5);
-    const yCenter = cy - total / 2 + lineH / 2 + i * lineH * (1 + gap);
+    const lineH = (m.ascent + m.descent) * sy;
+    const top = bands ? cy - h / 2 + (h / n) * i + (h / n - lineH) / 2 : y;
     ctx.save();
-    ctx.translate(cx, yCenter);
-    ctx.scale(sx, sy);
-    // 대문자 기준선: 글자 높이의 가운데가 줄 가운데에 오도록
-    ctx.fillText(lines[i], (m.left - m.right) / 2, cap / 2);
+    ctx.translate(cx, top + m.ascent * sy);
+    ctx.scale(xs[i], sy);
+    ctx.fillText(lines[i], (m.left - m.right) / 2, 0);
     ctx.restore();
+    y += lineH + gap * sy;
   });
 }
 
@@ -421,20 +447,23 @@ function drawRing({ lang, chars, baseChars, text, font, ink, mult = 1 }) {
 /** 원을 따라 글자를 고르게 두른다. 짧은 이름은 반복해 원을 채운다 */
 function drawCircularText(ctx, { unit, font, cx, cy, mid, band }) {
   const circ = 2 * Math.PI * mid;
-  const maxPx = band * 0.8;
-  ctx.font = fontString(font, maxPx);
-  const unitAtMax = ctx.measureText(unit).width;
-  // 원 둘레의 약 90%를 채우도록 반복 횟수와 글자 크기를 정한다 (짧은 이름이 작게 흩어지지 않게)
-  let repeat = Math.max(1, Math.min(4, Math.round((circ * 0.9) / unitAtMax)));
-  let px = Math.min(maxPx, maxPx * ((circ * 0.9) / (unitAtMax * repeat)));
-  if (px < band * 0.45 && repeat > 1) {
-    repeat -= 1;
-    px = Math.min(maxPx, maxPx * ((circ * 0.9) / (unitAtMax * repeat)));
-  }
+  // 글꼴마다 글자가 실제로 차지하는 높이가 달라(붓글씨는 글꼴 크기의 절반 정도) 잰 높이로 크기를 정한다
+  ctx.font = fontString(font, 100);
+  const probe = ctx.measureText(unit.replace(/[\s\u2605]/g, '') || unit);
+  const glyphH = ((probe.actualBoundingBoxAscent ?? 75) + (probe.actualBoundingBoxDescent ?? 0)) / 100;
+  let px = Math.min((band * 0.62) / Math.max(glyphH, 0.3), band * 1.1);
   ctx.font = fontString(font, px);
+  let unitW = ctx.measureText(unit).width;
+  // 원 둘레를 채우도록 반복한다. 글자 사이 여백이 글자 폭의 절반을 넘지 않게 최대 8번
+  let repeat = Math.max(1, Math.min(8, Math.round(circ / (unitW * 1.25))));
+  if (unitW * repeat > circ * 0.95) {
+    px *= (circ * 0.95) / (unitW * repeat);
+    ctx.font = fontString(font, px);
+    unitW = ctx.measureText(unit).width;
+  }
   const full = Array.from(unit.repeat(repeat));
   const widths = full.map((c) => ctx.measureText(c).width);
-  const total = widths.reduce((s, w) => s + w, 0);
+  const total = widths.reduce((t, w) => t + w, 0);
   const extra = (circ - total) / full.length;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

@@ -1,28 +1,31 @@
 // 글꼴 목록과 로더. 글꼴 파일은 index.html 의 Google Fonts 링크로 선언한다.
 // 목록을 바꾼 뒤에는 node scripts/fonts-link.mjs 로 index.html 링크를 다시 만든다.
 
-/** 서명 글꼴. sizeFactor 는 글꼴마다 다른 기본 크기를 비슷하게 맞추는 값 */
+/**
+ * 서명 글꼴. sizeFactor 는 글꼴마다 다른 기본 크기를 비슷하게 맞추는 값,
+ * weightScale 은 '굵기' 조절을 줄이는 값 (원래 획이 굵은 글꼴은 글자 속이 메워지지 않게)
+ */
 export const SIGNATURE_FONTS = {
   'Nanum Pen Script': { weight: 400, label: '나눔손글씨 펜', sizeFactor: 1.15 },
   'Nanum Brush Script': { weight: 400, label: '나눔손글씨 붓', sizeFactor: 1.15 },
   'East Sea Dokdo': { weight: 400, label: '동해 독도', sizeFactor: 1.15 },
   Dokdo: { weight: 400, label: '독도', sizeFactor: 1 },
-  Gaegu: { weight: 700, label: '개구', sizeFactor: 1 },
+  Gaegu: { weight: 700, label: '개구', sizeFactor: 1, weightScale: 0.7 },
   'Hi Melody': { weight: 400, label: '하이멜로디', sizeFactor: 1 },
   'Gamja Flower': { weight: 400, label: '감자꽃', sizeFactor: 1 },
   'Yeon Sung': { weight: 400, label: '연성', sizeFactor: 1 },
   'Poor Story': { weight: 400, label: '푸어스토리', sizeFactor: 1 },
   'Single Day': { weight: 400, label: '싱글데이', sizeFactor: 1 },
   'Cute Font': { weight: 400, label: '귀여운체', sizeFactor: 1.15 },
-  'Kirang Haerang': { weight: 400, label: '기랑해랑', sizeFactor: 1 },
+  'Kirang Haerang': { weight: 400, label: '기랑해랑', sizeFactor: 1, weightScale: 0.35 },
   Stylish: { weight: 400, label: '스타일리시', sizeFactor: 1 },
-  'Black And White Picture': { weight: 400, label: '흑백사진', sizeFactor: 1.05 },
+  'Black And White Picture': { weight: 400, label: '흑백사진', sizeFactor: 1.05, weightScale: 0.45 },
   'Great Vibes': { weight: 400, label: 'Great Vibes', sizeFactor: 1 },
   'Dancing Script': { weight: 600, label: 'Dancing Script', sizeFactor: 1 },
   Allura: { weight: 400, label: 'Allura', sizeFactor: 1 },
   Sacramento: { weight: 400, label: 'Sacramento', sizeFactor: 1.1 },
   'Alex Brush': { weight: 400, label: 'Alex Brush', sizeFactor: 1 },
-  'Mr Dafoe': { weight: 400, label: 'Mr Dafoe', sizeFactor: 1 },
+  'Mr Dafoe': { weight: 400, label: 'Mr Dafoe', sizeFactor: 1, weightScale: 0.6 },
   'Homemade Apple': { weight: 400, label: 'Homemade Apple', sizeFactor: 0.8 },
   Caveat: { weight: 600, label: 'Caveat', sizeFactor: 1 },
   'Pinyon Script': { weight: 400, label: 'Pinyon Script', sizeFactor: 0.95 },
@@ -32,7 +35,7 @@ export const SIGNATURE_FONTS = {
   Kristi: { weight: 400, label: 'Kristi', sizeFactor: 1.1 },
   Satisfy: { weight: 400, label: 'Satisfy', sizeFactor: 1 },
   Parisienne: { weight: 400, label: 'Parisienne', sizeFactor: 1 },
-  Yellowtail: { weight: 400, label: 'Yellowtail', sizeFactor: 1 },
+  Yellowtail: { weight: 400, label: 'Yellowtail', sizeFactor: 1, weightScale: 0.7 },
   'Rouge Script': { weight: 400, label: 'Rouge Script', sizeFactor: 1.05 },
   'Mrs Saint Delafield': { weight: 400, label: 'Mrs Saint Delafield', sizeFactor: 1.1 },
   'Cedarville Cursive': { weight: 400, label: 'Cedarville Cursive', sizeFactor: 0.9 },

@@ -29,6 +29,7 @@ export function transformText(text, transform) {
  * @param {number} [o.mult] 크기 배율
  * @returns {HTMLCanvasElement} 여백을 자른 투명 배경 캔버스
  */
+let measureCtx = null;
 const MAX_CANVAS_AREA = 16_000_000; // iOS Safari 캔버스 한도(약 1,670만 화소)보다 조금 작게
 
 export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0, mult = 1 }) {
@@ -36,7 +37,8 @@ export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0,
   const px = BASE_FONT_PX * font.sizeFactor * (style.size ?? 1) * mult;
   const display = transformText(text, style.transform);
 
-  const measure = document.createElement('canvas').getContext('2d');
+  measureCtx ??= document.createElement('canvas').getContext('2d'); // 글자를 잴 때마다 캔버스를 만들지 않는다
+  const measure = measureCtx;
   const layout = layoutText(measure, display, font, px, style);
   const b0 = layout.bbox;
   const bw = b0.x1 - b0.x0;
@@ -87,7 +89,8 @@ export function renderSignature({ text, style, ink, slantAdjust = 0, weight = 0,
     ctx.font = fontString(font, run.px);
     ctx.fillText(run.text, run.x, run.y);
     if (weight > 0) {
-      ctx.lineWidth = run.px * 0.012 * weight;
+      // 획이 굵은 글꼴은 같은 굵기를 더하면 ㅇ·ㅎ 속이 메워지므로 글꼴마다 줄인다
+      ctx.lineWidth = run.px * 0.012 * weight * (font.weightScale ?? 1);
       ctx.strokeText(run.text, run.x, run.y);
     }
   }
@@ -142,17 +145,20 @@ function layoutText(ctx, text, font, px, style) {
   const initial = style.initial ?? 1;
 
   if (style.vertical) {
+    // 글자마다 실제 높이를 재서 앞 글자 아래 끝과 다음 글자 위 끝 사이에 일정한 틈을 둔다
     let y = 0;
+    let prevBottom = null;
     for (const c of list) {
       if (c === ' ') {
-        y += px * 0.4;
+        if (prevBottom !== null) prevBottom += px * 0.3;
         continue;
       }
       const m = metrics(c, px);
+      if (prevBottom !== null) y = Math.max(y + px * 0.6, prevBottom + px * 0.12 + spacing + m.ascent);
       const x = (m.left - m.right) / 2;
       runs.push({ text: c, x, y, px });
       grow(x - m.left, y - m.ascent, x + m.right, y + m.descent);
-      y += px * 0.88 + spacing;
+      prevBottom = y + m.descent;
     }
   } else if (spacing === 0 && initial === 1) {
     const m = metrics(text, px);
