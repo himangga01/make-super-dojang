@@ -199,8 +199,9 @@ function textArea(shape, w, h, ratio) {
     default: {
       const poly = outlinePoints(shape, w, h);
       const r = largestRectInPolygon(poly, ratio);
-      // 곡선·다각형은 글자 모서리가 비어 있어 내접 사각형보다 조금 크게 잡는다
-      const k = shape.outline === 'polygon' && shape.sides === 4 ? 1.12 : 1.1;
+      // 내접 사각형보다 크게 잡으면 '재', '인'처럼 모서리까지 획이 있는 글자가 테두리에 닿는다.
+      // 마름모만 내접 사각형이 너무 작아 조금 키운다.
+      const k = shape.outline === 'polygon' && shape.sides === 4 ? 1.08 : 1;
       return { w: Math.min(r.width * k, w * 0.92), h: Math.min(r.height * k, h * 0.92) };
     }
   }
