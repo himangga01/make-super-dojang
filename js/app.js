@@ -902,7 +902,7 @@ $('#save-library').addEventListener('click', async () => {
 });
 
 $('#library-clear').addEventListener('click', async () => {
-  if (!window.confirm('보관함의 서명·도장, 입력한 이름, 받아 둔 글꼴을 모두 지울까요? 되돌릴 수 없어요.')) return;
+  if (!window.confirm('보관함의 서명·도장과 입력한 이름을 모두 지울까요? 되돌릴 수 없어요.')) return;
   try {
     await library.clearItems();
     state.deleted = [];
@@ -914,12 +914,8 @@ $('#library-clear').addEventListener('click', async () => {
       state[target].token++;
       setResults(target, [], target === 'sign' ? '이름을 입력하면 서명 후보 24가지가 나타나요.' : `이름을 입력하면 도장 후보 ${STAMP_SHAPES.length}가지가 나타나요.`);
     }
-    // 글꼴 캐시에는 입력한 글자가 어느 범위인지 흔적이 남으므로 함께 지운다
-    if ('caches' in window) {
-      for (const key of await caches.keys()) if (key.startsWith('super-dojang-fonts')) await caches.delete(key);
-    }
     await renderLibrary();
-    setStatus('보관함, 이름, 글꼴 캐시를 모두 지웠어요.');
+    setStatus('보관함과 이름을 모두 지웠어요.');
   } catch (err) {
     console.error(err);
     setStatus('지우지 못했어요.', { error: true });
@@ -1085,22 +1081,17 @@ function restoreNames() {
   } catch { /* 무시 */ }
 }
 
-// 앱 설치(PWA)
-let installPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  installPrompt = e;
-  $('#install').hidden = false;
-});
-$('#install').addEventListener('click', async () => {
-  if (!installPrompt) return;
-  installPrompt.prompt();
-  await installPrompt.userChoice;
-  installPrompt = null;
-  $('#install').hidden = true;
-});
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
-  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('서비스 워커 등록 실패', err));
+// 예전 판에서 등록한 서비스 워커와 그 캐시를 지운다. 이 서비스는 웹페이지로만 동작한다.
+// (남아 있으면 예전 파일을 계속 보여 줄 수 있다)
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.()
+    .then((regs) => Promise.all(regs.map((r) => r.unregister())))
+    .catch(() => {});
+}
+if ('caches' in window) {
+  caches.keys()
+    .then((keys) => Promise.all(keys.filter((k) => k.startsWith('super-dojang-')).map((k) => caches.delete(k))))
+    .catch(() => {});
 }
 
 // 시작 (모든 모듈 변수가 초기화된 뒤에 호출한다)

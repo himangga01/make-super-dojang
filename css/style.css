@@ -176,7 +176,6 @@ select { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; b
 }
 
 /* ───────── v2 추가 ───────── */
-.header-actions { display: flex; align-items: center; gap: 8px; }
 .btn-sm { font-size: 13px; padding: 7px 12px; }
 .btn-block { width: 100%; margin-top: 8px; padding: 12px; }
 .tabs { grid-template-columns: repeat(4, 1fr); }

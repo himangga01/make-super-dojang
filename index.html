@@ -2,15 +2,13 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'none'; object-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' blob: data:; connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; base-uri 'self'; form-action 'none'; object-src 'none'">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>슈퍼도장 · 무료 전자서명·도장 만들기</title>
   <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 서명 형태 한글·영문 각 24가지, 도장 28가지, 문서에 바로 넣기까지. 한글·영문 지원.">
   <meta name="theme-color" content="#e5483b">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/icon-192.png">
-  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- 글꼴 CSS 는 화면 그리기를 막지 않도록 print 로 받아 두고, 서명·도장을 만들 때 js/fonts.js 가 켠다 -->
@@ -23,10 +21,7 @@
       <img src="assets/favicon.svg" alt="" width="32" height="32">
       <span>슈퍼도장</span>
     </a>
-    <div class="header-actions">
-      <button type="button" class="btn btn-ghost btn-sm" id="install" hidden>앱 설치</button>
-      <span class="badge">무료 · 설치 없음</span>
-    </div>
+    <span class="badge">무료 · 설치 없음</span>
   </header>
 
   <main class="container">
