@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>슈퍼도장 · 무료 전자서명·도장 만들기</title>
+  <meta name="description" content="직접 그리거나 이름만 입력해 전자서명과 도장을 만들고, 투명 배경 PNG로 바로 내려받으세요. 한글·영문 지원.">
+  <meta name="theme-color" content="#ffffff">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Nanum+Brush+Script&family=East+Sea+Dokdo&family=Dokdo&family=Gaegu:wght@700&family=Hi+Melody&family=Gamja+Flower&family=Yeon+Sung&family=Great+Vibes&family=Dancing+Script:wght@600&family=Allura&family=Sacramento&family=Alex+Brush&family=Mr+Dafoe&family=Homemade+Apple&family=Caveat:wght@600&family=Nanum+Myeongjo:wght@800&family=Song+Myung&family=Black+Han+Sans&family=Gowun+Batang:wght@700&family=Do+Hyeon&family=Hahmlet:wght@700&family=Cinzel:wght@700&family=Playfair+Display:wght@700&family=Libre+Baskerville:wght@700&family=Oswald:wght@600&display=block">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="./">
+      <img src="assets/favicon.svg" alt="" width="32" height="32">
+      <span>슈퍼도장</span>
+    </a>
+    <span class="badge">무료 · 설치 없음</span>
+  </header>
+
+  <main class="container">
+    <section class="hero">
+      <h1>전자서명·도장 만들기</h1>
+      <p>직접 그리거나 이름만 입력하세요. 투명 배경 PNG로 바로 내려받을 수 있어요.</p>
+    </section>
+
+    <section class="panel" aria-label="만들기">
+      <div class="tabs" role="tablist" aria-label="만들기 방식">
+        <button role="tab" id="tab-draw" aria-controls="panel-draw" aria-selected="true" data-tab="draw">직접 서명</button>
+        <button role="tab" id="tab-sign" aria-controls="panel-sign" aria-selected="false" tabindex="-1" data-tab="sign">서명 생성</button>
+        <button role="tab" id="tab-stamp" aria-controls="panel-stamp" aria-selected="false" tabindex="-1" data-tab="stamp">도장 생성</button>
+      </div>
+
+      <!-- 직접 서명 -->
+      <div role="tabpanel" id="panel-draw" aria-labelledby="tab-draw" class="tabpanel">
+        <div class="pad-wrap">
+          <canvas id="pad" class="pad" aria-label="서명 입력 영역. 손가락이나 마우스로 서명하세요."></canvas>
+          <p class="pad-hint" id="pad-hint">여기에 서명하세요</p>
+          <div class="pad-tools">
+            <button type="button" class="icon-btn" id="pad-undo" aria-label="되돌리기" title="되돌리기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            </button>
+            <button type="button" class="icon-btn" id="pad-clear" aria-label="모두 지우기" title="모두 지우기">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field-row">
+          <label class="field-label" for="pen-width">펜 굵기</label>
+          <input type="range" id="pen-width" min="1.5" max="9" step="0.5" value="3.5">
+        </div>
+      </div>
+
+      <!-- 서명 생성 -->
+      <div role="tabpanel" id="panel-sign" aria-labelledby="tab-sign" class="tabpanel" hidden>
+        <form class="name-form" data-target="sign" novalidate>
+          <div class="seg" role="radiogroup" aria-label="언어">
+            <label><input type="radio" name="sign-lang" value="auto" checked><span>자동</span></label>
+            <label><input type="radio" name="sign-lang" value="ko"><span>한글</span></label>
+            <label><input type="radio" name="sign-lang" value="en"><span>영문</span></label>
+          </div>
+          <div class="name-input">
+            <input type="text" id="sign-name" name="name" placeholder="이름을 입력해 주세요" maxlength="14" autocomplete="name" enterkeyhint="done" aria-describedby="sign-count">
+            <span class="count" id="sign-count">0/14</span>
+            <button type="submit" class="btn btn-outline">만들기</button>
+          </div>
+        </form>
+        <div class="options">
+          <div class="field-row">
+            <label class="field-label" for="sign-slant">기울기</label>
+            <input type="range" id="sign-slant" min="0" max="20" step="1" value="6">
+          </div>
+          <label class="toggle"><input type="checkbox" id="sign-flourish"><span>밑줄 장식</span></label>
+        </div>
+        <div class="results" id="sign-results" aria-live="polite">
+          <p class="empty">이름을 입력하면 서명 후보가 나타나요.</p>
+        </div>
+      </div>
+
+      <!-- 도장 생성 -->
+      <div role="tabpanel" id="panel-stamp" aria-labelledby="tab-stamp" class="tabpanel" hidden>
+        <form class="name-form" data-target="stamp" novalidate>
+          <div class="seg" role="radiogroup" aria-label="언어">
+            <label><input type="radio" name="stamp-lang" value="auto" checked><span>자동</span></label>
+            <label><input type="radio" name="stamp-lang" value="ko"><span>한글</span></label>
+            <label><input type="radio" name="stamp-lang" value="en"><span>영문</span></label>
+          </div>
+          <div class="name-input">
+            <input type="text" id="stamp-name" name="name" placeholder="이름을 입력해 주세요" maxlength="14" autocomplete="name" enterkeyhint="done" aria-describedby="stamp-count">
+            <span class="count" id="stamp-count">0/14</span>
+            <button type="submit" class="btn btn-outline">만들기</button>
+          </div>
+        </form>
+        <div class="options">
+          <div class="field-row">
+            <label class="field-label" for="stamp-font">글꼴</label>
+            <select id="stamp-font"><option value="auto">추천 조합</option></select>
+          </div>
+          <div class="ko-only field-row">
+            <label class="field-label" for="stamp-order">읽는 순서</label>
+            <select id="stamp-order">
+              <option value="horizontal">가로 (왼쪽부터)</option>
+              <option value="vertical">세로 (오른쪽 열부터)</option>
+            </select>
+          </div>
+          <label class="toggle ko-only"><input type="checkbox" id="stamp-in" checked><span>'인' 붙이기</span></label>
+          <label class="toggle"><input type="checkbox" id="stamp-texture"><span>인주 질감</span></label>
+        </div>
+        <div class="results stamps" id="stamp-results" aria-live="polite">
+          <p class="empty">이름을 입력하면 도장 후보가 나타나요.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 저장 옵션 -->
+    <section class="panel export" aria-labelledby="export-title">
+      <h2 id="export-title">저장하기</h2>
+
+      <div class="opt-group">
+        <span class="field-label" id="ink-label">잉크 색</span>
+        <div class="swatches" id="ink-swatches" role="radiogroup" aria-labelledby="ink-label"></div>
+      </div>
+
+      <div class="opt-group">
+        <span class="field-label" id="bg-label">배경</span>
+        <div class="swatches" id="bg-swatches" role="radiogroup" aria-labelledby="bg-label">
+          <button type="button" class="swatch checker" data-bg="transparent" role="radio" aria-checked="true" title="투명"><span class="sr">투명</span></button>
+          <button type="button" class="swatch" data-bg="#ffffff" role="radio" aria-checked="false" style="--c:#ffffff" title="흰색"><span class="sr">흰색</span></button>
+          <button type="button" class="swatch" data-bg="#fdf6e3" role="radio" aria-checked="false" style="--c:#fdf6e3" title="미색"><span class="sr">미색</span></button>
+          <label class="swatch custom" title="직접 고르기">
+            <input type="color" id="bg-custom" value="#e8f0ff" aria-label="배경색 직접 고르기">
+          </label>
+        </div>
+      </div>
+
+      <div class="opt-group">
+        <span class="field-label" id="res-label">해상도</span>
+        <div class="seg small" role="radiogroup" aria-labelledby="res-label">
+          <label><input type="radio" name="res" value="1" checked><span>보통</span></label>
+          <label><input type="radio" name="res" value="2.5"><span>고해상도</span></label>
+        </div>
+      </div>
+
+      <div class="preview checker-bg" id="preview">
+        <p class="empty" id="preview-empty">만든 서명이나 도장이 여기에 보여요.</p>
+      </div>
+      <p class="preview-meta" id="preview-meta"></p>
+
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="download" disabled>PNG 다운로드</button>
+        <button type="button" class="btn btn-ghost" id="copy" hidden disabled>복사</button>
+      </div>
+      <p class="status" id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <footer class="site-footer">
+      <p>모든 이미지는 이 브라우저 안에서만 만들어지고 서버로 보내지 않아요.</p>
+    </footer>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
