@@ -16,30 +16,35 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <aside class="office-bar" aria-label="운영 사무소 안내">
-    <div class="office-inner">
-      <p class="office-intro"><strong>지혜행정사사무소</strong>가 운영하는 무료 서비스입니다. 복잡한 행정 절차, 요건 검토부터 서류 준비와 신청까지 꼼꼼하게 함께합니다.</p>
-      <nav aria-label="지혜행정사사무소 사이트">
-        <ul class="office-links">
-          <li><a href="https://jihyeadminoffice.com/" target="_blank" rel="noopener">
-            <span class="office-name">행정 업무 전반 <span class="office-domain">jihyeadminoffice.com ↗</span></span>
-            <span class="office-desc">공공조달, 신인도 가점 인증, 안전·ESG, 기업 인증(벤처·이노비즈·메인비즈·기업부설연구소), 인허가·법인·단체 설립, 출입국·비자</span>
-            <span class="sr">(새 창에서 열림)</span>
-          </a></li>
-          <li><a href="https://jihyeadminschool.co.kr/" target="_blank" rel="noopener">
-            <span class="office-name">학교폭력 전문 <span class="office-domain">jihyeadminschool.co.kr ↗</span></span>
-            <span class="office-desc">신고·조사 대응, 심의위원회 준비, 행정심판 서류 작성</span>
-            <span class="sr">(새 창에서 열림)</span>
-          </a></li>
-          <li><a href="https://jihyevisa.co.kr/" target="_blank" rel="noopener">
-            <span class="office-name">비자·출입국 상담 <span class="office-domain">jihyevisa.co.kr ↗</span></span>
-            <span class="office-desc">외국인 채용·투자·구직, 결혼·가족동반, 거주·영주, 재외동포 비자</span>
-            <span class="sr">(새 창에서 열림)</span>
-          </a></li>
-        </ul>
-      </nav>
+  <div class="topbar">
+  <nav class="family" aria-label="지혜행정사사무소 사이트">
+    <div class="family-inner">
+      <p class="family-label">
+        <span class="family-mark" aria-hidden="true"></span>
+        <span><strong>지혜행정사사무소</strong>운영 사이트</span>
+      </p>
+      <ul class="family-cards">
+        <li><a class="fcard" href="https://jihyeadminoffice.com/" target="_blank" rel="noopener" title="공공조달, 신인도 가점 인증, 안전·ESG, 기업 인증(벤처·이노비즈·메인비즈·기업부설연구소), 인허가·법인·단체 설립, 출입국·비자">
+          <img class="fcard-shot" src="assets/preview-office.jpg" alt="" width="400" height="225">
+          <span class="fcard-text"><span class="fcard-title">행정 업무</span><span class="fcard-desc">공공조달·기업인증·인허가·ESG·비자</span></span>
+          <svg class="fcard-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
+          <span class="sr">(새 창에서 열림)</span>
+        </a></li>
+        <li><a class="fcard" href="https://jihyeadminschool.co.kr/" target="_blank" rel="noopener" title="학교폭력 신고·조사 대응, 심의위원회 준비, 행정심판 서류 작성">
+          <img class="fcard-shot" src="assets/preview-school.jpg" alt="" width="400" height="225">
+          <span class="fcard-text"><span class="fcard-title">학교폭력</span><span class="fcard-desc">신고·조사 대응·심의·행정심판</span></span>
+          <svg class="fcard-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
+          <span class="sr">(새 창에서 열림)</span>
+        </a></li>
+        <li><a class="fcard" href="https://jihyevisa.co.kr/" target="_blank" rel="noopener" title="외국인 채용·투자·구직, 결혼·가족동반, 거주·영주, 재외동포 비자">
+          <img class="fcard-shot" src="assets/preview-visa.jpg" alt="" width="400" height="225">
+          <span class="fcard-text"><span class="fcard-title">비자·출입국</span><span class="fcard-desc">취업·투자·결혼·영주 비자</span></span>
+          <svg class="fcard-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17L17 7M9 7h8v8"/></svg>
+          <span class="sr">(새 창에서 열림)</span>
+        </a></li>
+      </ul>
     </div>
-  </aside>
+  </nav>
   <header class="site-header">
     <a class="brand" href="./">
       <img src="assets/favicon.svg" alt="" width="32" height="32">
@@ -47,6 +52,7 @@
     </a>
     <span class="badge">무료 · 설치 없음</span>
   </header>
+  </div>
 
   <main class="container">
     <section class="hero">
