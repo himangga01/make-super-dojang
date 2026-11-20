@@ -63,7 +63,7 @@
 npm start          # http://localhost:8080 (Node.js 18 이상)
 ```
 
-개발용 서버(`scripts/serve.mjs`)는 기본으로 `127.0.0.1`에서만 받습니다. 같은 네트워크의 휴대폰에서 확인하려면 `SERVE_HOST=0.0.0.0 npm start`로 실행하세요.
+개발용 서버(`scripts/serve.mjs`)는 모든 파일에 `Cache-Control: no-cache`와 내용 기준 `ETag`를 붙입니다. 고친 파일은 바로 반영되고, 바뀌지 않은 파일은 304로 응답해 다시 내려받지 않습니다. 기본으로 `127.0.0.1`에서만 받습니다. 같은 네트워크의 휴대폰에서 확인하려면 `SERVE_HOST=0.0.0.0 npm start`로 실행하세요.
 
 ## 배포
 
