@@ -121,9 +121,18 @@ test('서명 형태 20가지 이상, 글꼴이 모두 등록돼 있다', () => {
   assert.ok(STAMP_FONTS.ko.length >= 5 && STAMP_FONTS.en.length >= 4);
 });
 
-test('도장 모양 20가지 이상, 분류가 모두 유효하다', async () => {
+test('도장 모양 80가지, 분류가 모두 유효하다', async () => {
   const { STAMP_SHAPES, STAMP_CATEGORIES } = await import('../js/stamp-gen.js');
-  assert.ok(STAMP_SHAPES.length >= 20, `${STAMP_SHAPES.length}`);
+  assert.equal(STAMP_SHAPES.length, 80);
+  // 인장체: 처음 4종은 기본형·구첩, 웹 글꼴 대신 '인장체' 이름표
+  const seal = STAMP_SHAPES.filter((s) => s.cat === 'seal');
+  assert.deepEqual(seal.map((s) => s.id).slice(0, 4), ['seal-square', 'seal-circle', 'seal-folded-square', 'seal-folded-circle']);
+  assert.ok(seal.every((s) => s.fontLabel === '인장체'));
+  const catIds = STAMP_CATEGORIES.map((c) => c.id);
+  assert.deepEqual(catIds.slice(-3), ['seal', 'ring', 'office']);
+  // 둘레글자 분류는 기존 3종이 앞에 온다. 날짜·결재 분류 첫 카드는 날짜 도장 (e2e 가 이 카드를 고해상도로 받는다)
+  assert.deepEqual(STAMP_SHAPES.filter((s) => s.cat === 'ring').map((s) => s.id).slice(0, 3), ['ring', 'ring-star', 'ring-square']);
+  assert.deepEqual(STAMP_SHAPES.filter((s) => s.cat === 'office').map((s) => s.id), ['date', 'receipt', 'approval', 'confirm-h']);
   assert.equal(new Set(STAMP_SHAPES.map((s) => s.id)).size, STAMP_SHAPES.length, 'id 중복');
   const cats = new Set(STAMP_CATEGORIES.map((c) => c.id));
   for (const s of STAMP_SHAPES) assert.ok(cats.has(s.cat), `${s.id}: ${s.cat}`);

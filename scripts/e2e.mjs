@@ -160,14 +160,14 @@ try {
   await page.click('#tab-stamp');
   await page.fill('#stamp-name', '홍길동');
   await page.click('#panel-stamp button[type="submit"]');
-  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 28);
-  check(true, '한글 도장 28가지');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 80);
+  check(true, '한글 도장 80가지');
   check((await page.locator('#stamp-results .card-warn').count()) === 0, '한글 도장 글꼴 모두 로드');
   await page.screenshot({ path: join(outDir, '4-stamp-ko.png'), fullPage: true });
-  await page.click('#stamp-cats [data-cat="special"]');
-  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 2);
-  check(true, '분류 필터 (둘레글자·날짜 2가지)');
-  await page.locator('#stamp-results .card-select').nth(1).click();
+  await page.click('#stamp-cats [data-cat="office"]');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 4);
+  check(true, '분류 필터 (날짜·결재 4가지)');
+  await page.locator('#stamp-results .card-select').nth(0).click();
   await page.check('input[name="res"][value="2.5"]');
   file = await saveDownload(() => page.click('#download'));
   img = await inspectImage(file.path);
@@ -175,6 +175,14 @@ try {
   await page.click('#save-library');
   await page.waitForFunction(() => document.querySelectorAll('#library-grid .lib-item').length === 2);
   check(true, '도장 보관함 저장');
+  await page.click('#stamp-cats [data-cat="ring"]');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 15);
+  check(true, '분류 필터 (둘레글자 15가지)');
+  await page.click('#stamp-cats [data-cat="seal"]');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 16);
+  check(true, '분류 필터 (인장체 16가지)');
+  const sealSubs = await page.locator('#stamp-results .card-label .sub').allTextContents();
+  check(sealSubs.length === 16 && sealSubs.every((t) => t === '인장체'), `인장체 카드 이름표 (${sealSubs.join(', ')})`);
 
   await page.click('#stamp-cats [data-cat="all"]');
   await page.check('#stamp-texture');
@@ -185,7 +193,7 @@ try {
   await page.screenshot({ path: join(outDir, '5-stamp-effects.png'), fullPage: true });
 
   await page.fill('#stamp-name', 'Jane Doe');
-  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 28 && document.querySelector('#stamp-font').dataset.lang === 'en');
+  await page.waitForFunction(() => document.querySelectorAll('#stamp-results .card').length === 80 && document.querySelector('#stamp-font').dataset.lang === 'en');
   check(await page.locator('#stamp-order').isHidden(), '영문 도장에서 한글 전용 옵션 숨김');
   check((await page.locator('#stamp-results .card-warn').count()) === 0, '영문 도장 글꼴 모두 로드');
 

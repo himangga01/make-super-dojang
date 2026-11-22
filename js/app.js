@@ -2,7 +2,7 @@ import { STAMP_FONTS, loadFonts, whenFontLoaded, signatureFont, ensureFontCss } 
 import { SIGNATURE_STYLES } from './signature-styles.js';
 import { SignaturePad } from './signature-pad.js';
 import { renderSignature, transformText } from './signature-gen.js';
-import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES } from './stamp-gen.js';
+import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES, SEAL_CENTERS, SEAL_CENTER_FONT, SEAL_CENTER_TEXT } from './stamp-gen.js';
 import { finalize, toPngBlob, downloadBlob, canCopyImage, copyBlob } from './exporter.js';
 import { PhotoSignature, loadImageFile } from './photo-import.js';
 import { DocComposer } from './doc-composer.js';
@@ -255,9 +255,16 @@ $('#stamp-rotation').addEventListener('input', (e) => { $('#stamp-rotation-out')
 
 // 도장 옵션
 for (const id of ['#stamp-font', '#stamp-in', '#stamp-date-label']) $(id).addEventListener('change', () => generate('stamp'));
-for (const id of ['#stamp-order', '#stamp-texture', '#stamp-bleed', '#stamp-date']) $(id).addEventListener('change', () => rerenderCards('stamp'));
+// 둘레글자 도장 가운데 글자 선택지 (목록은 stamp-gen.js 한 곳에서 관리)
+$('#stamp-seal-center').innerHTML = SEAL_CENTERS.map((c) => `<option value="${c.id}">${c.label}</option>`).join('');
+// 가운데 글자 선택지를 쓰는 모양: 한자(代表理事·印)를 고른 글꼴과 상관없이 본명조로 그린다.
+// 추가 둘레글자는 sealCenter 표시로 알리고, 표시가 없는 기존 둘레글자 원·별 직인은 special 로 본다
+const SHAPE_BY_ID = new Map(STAMP_SHAPES.map((sh) => [sh.id, sh]));
+const usesSealCenter = (sh) => Boolean(sh && (sh.sealCenter || sh.special === 'ring' || sh.special === 'ring-star'));
+for (const id of ['#stamp-order', '#stamp-texture', '#stamp-bleed', '#stamp-date', '#stamp-seal-center']) $(id).addEventListener('change', () => rerenderCards('stamp'));
 $('#stamp-date').value = isoDate(new Date());
 
+const CAT_ORDER = STAMP_CATEGORIES.map((c) => c.id);
 const catBox = $('#stamp-cats');
 catBox.innerHTML = STAMP_CATEGORIES.map((c) => {
   const n = c.id === 'all' ? STAMP_SHAPES.length : STAMP_SHAPES.filter((s) => s.cat === c.id).length;
@@ -289,6 +296,7 @@ function opts(target) {
     bleed: $('#stamp-bleed').checked,
     rotation: Number($('#stamp-rotation').value),
     date: dotDate($('#stamp-date').value),
+    sealCenter: $('#stamp-seal-center').value,
   };
 }
 
@@ -336,9 +344,13 @@ async function generate(target, { focusResults = false } = {}) {
   for (const font of fonts.filter((f) => !okByFamily.get(f.family))) {
     whenFontLoaded(font, text).then((ok) => {
       if (!ok || token !== s.token) return;
-      for (const it of s.items.filter((x) => x.font.family === font.family)) {
-        it.fontOk = true;
-        it.card?.querySelector('.card-warn')?.remove();
+      // 가운데 한자 글꼴이 늦게 오면 가운데 글자를 쓰는 둘레글자 카드도 다시 그린다
+      const usesFont = (x) => x.font.family === font.family || (target === 'stamp' && font.family === SEAL_CENTER_FONT.family && usesSealCenter(SHAPE_BY_ID.get(x.id)));
+      for (const it of s.items.filter(usesFont)) {
+        if (it.font.family === font.family) {
+          it.fontOk = true;
+          it.card?.querySelector('.card-warn')?.remove();
+        }
         redrawCard(target, it);
       }
       if (state.tab === target) updatePreview();
@@ -369,7 +381,9 @@ function stampSpecs(name, lang) {
   const chosen = fonts.find((f) => f.family === $('#stamp-font').value);
   const list = stampChars(name, { addIn: $('#stamp-in').checked, lang });
   const baseChars = stampChars(name, { addIn: false, lang });
-  const shapes = STAMP_SHAPES.filter((sh) => state.stamp.cat === 'all' || sh.cat === state.stamp.cat);
+  // 새 모양은 목록 끝에 붙어 있으므로 '전체'에서는 분류 순서로 모아 보여 준다 (같은 분류 안에서는 목록 순서)
+  const shapes = STAMP_SHAPES.filter((sh) => state.stamp.cat === 'all' || sh.cat === state.stamp.cat)
+    .sort((a, b) => CAT_ORDER.indexOf(a.cat) - CAT_ORDER.indexOf(b.cat));
   const dateLabel = $('#stamp-date-label').value;
 
   const specs = shapes.map((shape) => {
@@ -379,12 +393,15 @@ function stampSpecs(name, lang) {
       id: shape.id,
       font,
       label: shape.label,
-      sub: font.label,
+      sub: shape.fontLabel ?? font.label, // 인장체처럼 웹 글꼴을 쓰지 않는 모양은 자기 이름을 단다
       render: (mult) => renderStamp({ lang, chars: list, baseChars, text: name, shape, font, dateLabel, mult, ...opts('stamp') }),
     };
   });
-  const text = `${list.join('')}${name}${name.toUpperCase()}★0123456789.${dateLabel || '확인APPROVED'}`;
-  return { specs, fonts: uniqueFonts(specs.map((x) => x.font)), text };
+  // 둘레글자 가운데 '인', 가운뎃점, 업무용 도장의 기본 문구까지 미리 받는다
+  const text = `${list.join('')}${name}${name.toUpperCase()}인★·0123456789.${dateLabel || '확인결재접수APPROVEDRECEIVEDCHECKED'}${SEAL_CENTER_TEXT}`;
+  // 둘레글자 가운데 한자(代表理事)는 고른 글꼴과 상관없이 본명조로 그리므로 함께 받는다
+  const extra = lang === 'ko' && shapes.some(usesSealCenter) ? [SEAL_CENTER_FONT] : [];
+  return { specs, fonts: uniqueFonts([...specs.map((x) => x.font), ...extra]), text };
 }
 
 function uniqueFonts(list) {

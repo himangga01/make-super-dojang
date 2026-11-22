@@ -55,6 +55,14 @@ export const STAMP_FONTS = {
     { family: 'Jua', weight: 400, label: '주아' },
     { family: 'Gugi', weight: 400, label: '구기' },
     { family: 'Nanum Brush Script', weight: 400, label: '나눔손글씨 붓' },
+    // 추천 조합은 모양 순서대로 글꼴을 돌려 쓴다. 획이 아주 굵은 가석·베이글이 날짜 도장처럼
+    // 글자가 작은 모양에 걸리지 않도록 순서를 맞췄다
+    { family: 'Gothic A1', weight: 900, label: '고딕 A1' },
+    { family: 'Sunflower', weight: 700, label: '해바라기' },
+    { family: 'Gasoek One', weight: 400, label: '가석' },
+    { family: 'Bagel Fat One', weight: 400, label: '베이글' },
+    { family: 'Asta Sans', weight: 800, label: '아스타' },
+    { family: 'Black And White Picture', weight: 400, label: '흑백사진' },
   ],
   en: [
     { family: 'Cinzel', weight: 700, label: 'Cinzel' },
