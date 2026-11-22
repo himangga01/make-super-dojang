@@ -34,6 +34,13 @@ export const RING_EXTRA_SHAPES = [
   ring('ring-star-line', '별 아래글'), // 본명조
   ring('ring-west', '가운데 두 줄'), // 송명
   ring('ring-thin', '두 선 띠'), // 검은고딕
+  // 인장체 직인: 둘레 글자까지 둥근 인장체 획으로 긋는다 (가는 테 · 맨 위 ● 또는 ★ · 가운데 작은 원)
+  ring('ring-seal-dot', '인장체 직인', { fontLabel: '인장체' }),
+  ring('ring-seal-star', '인장체 별 직인', { fontLabel: '인장체' }),
+  ring('ring-fold3-dot', '삼첩 직인', { fontLabel: '인장체' }),
+  ring('ring-fold3-star', '삼첩 별 직인', { fontLabel: '인장체' }),
+  ring('ring-folded-dot', '구첩 직인', { fontLabel: '인장체' }),
+  ring('ring-folded-star', '구첩 별 직인', { fontLabel: '인장체' }),
 ];
 
 /** special 값 → 그리기 함수 */
@@ -50,6 +57,12 @@ export const RING_EXTRA_DRAW = {
   'ring-inverted': drawInverted,
   'ring-west': drawWest,
   'ring-thin': drawThin,
+  'ring-seal-dot': (o) => drawSealScriptRing(o, { level: 'plain', marker: 'dot' }),
+  'ring-seal-star': (o) => drawSealScriptRing(o, { level: 'plain', marker: 'star' }),
+  'ring-fold3-dot': (o) => drawSealScriptRing(o, { level: 'fold3', marker: 'dot' }),
+  'ring-fold3-star': (o) => drawSealScriptRing(o, { level: 'fold3', marker: 'star' }),
+  'ring-folded-dot': (o) => drawSealScriptRing(o, { level: 'folded', marker: 'dot' }),
+  'ring-folded-star': (o) => drawSealScriptRing(o, { level: 'folded', marker: 'star' }),
 };
 
 // ───────────── 계산 (DOM 없음) ─────────────
@@ -718,5 +731,185 @@ function drawThin(o) {
   useFont(ctx, o.font);
   drawRun(ctx, plan, path, { origin: -plan.head / 2, ...runCell(plan, stepMax, cellH), sep: (p) => dot(ctx, p.x, p.y, band * 0.07) });
   sealCenterIn(ctx, o, cx, cy, R2 - lw / 2 - S * 0.015);
+  return canvas;
+}
+
+// ───────────── 13~18. 인장체 직인: 둘레 글자도 둥근 인장체 획으로 (법인 직인 꼴) ─────────────
+// 가는 바깥 테, 맨 위 ● 또는 ★, 이름을 둘레에 고르게(글자 머리가 바깥쪽), 가는 가운데 원 안에 직인 가운데 글자.
+// 둘레 글자는 글꼴 대신 stamp-seal-extra.js 의 둥근 인장체 획(기본형 · 삼첩 · 구첩)으로 긋는다.
+// 짧은 이름 되풀이와 영문 띄어쓰기 점은 ringUnits 를 따른다
+import { ROUND_SEAL, drawRoundGlyph, roundGlyphInfo } from './stamp-seal-extra.js';
+
+/** 크기는 S(도장 기준 크기) 배수 */
+export const SEAL_RING = {
+  rim: 0.018, // 바깥 테 굵기
+  inner: 0.272, // 가운데 원 반지름
+  innerW: 0.013, // 가운데 원 굵기
+  cellH: 0.165, // 둘레 글자 높이 (반지름 방향). 띠 폭의 band 배를 넘지 않는다
+  band: 0.8,
+  aspect: 0.92, // 한글 칸 폭 / 높이
+  latin: 1.15, // 영문·숫자 칸 폭 = 높이 × 본래 비율 × 이 값 (한글 칸 폭까지)
+  stroke: 2, // 작은 둘레 글자는 획을 도장 전체와 비슷한 굵기로: 칸 크기 × 단계 k × 이 값
+  marker: 0.45, // 네 자 이하일 때 맨 위 표시가 차지하는 칸 수 (다섯 자부터는 한 칸)
+  dot: 0.042, // ● 반지름
+  star: 0.055, // ★ 반지름
+  sep: 0.011, // 되풀이 사이 점 반지름
+};
+
+/**
+ * 둘레 칸 각도 (맨 위에서 시계 방향, 라디안). 맨 위 표시 자리를 비우고 나머지에 고르게 놓는다.
+ * 네 자 이하는 표시가 marker 칸, 다섯 자 이상은 한 칸 (둘레글자 원과 같은 규칙)
+ */
+export function sealRingSlots(n, marker = SEAL_RING.marker) {
+  const markerW = n >= 5 ? 1 : marker;
+  const step = TAU / (n + markerW);
+  const first = ((markerW + 1) * step) / 2;
+  return { step, markerW, angles: Array.from({ length: n }, (_, i) => first + i * step) };
+}
+
+/** 반지름 r 에 세운 칸(높이 h)이 각도 step 떨어진 이웃 칸과 gap 을 두는 가장 큰 폭 (안쪽 모서리 기준) */
+export function ringCellMaxW(r, h, step, gap) {
+  const half = Math.min(step / 2, Math.PI / 2 - 1e-3);
+  return Math.max(0, 2 * (r - h / 2) * Math.tan(half) - gap / Math.cos(half));
+}
+
+function drawSealScriptRing(o, { level, marker }) {
+  const C = SEAL_RING;
+  const S = BASE * (o.mult ?? 1);
+  const rim = Math.max(1, S * C.rim);
+  const innerW = Math.max(1, S * C.innerW);
+  const m = Math.max(rim * 2, S * 0.03);
+  const canvas = makeCanvas(S + m * 2, S + m * 2);
+  const ctx = canvas.getContext('2d');
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  ctx.strokeStyle = o.ink;
+  ctx.fillStyle = o.ink;
+  strokeCircle(ctx, cx, cy, S / 2 - rim / 2, rim);
+  const Rc = S * C.inner;
+  strokeCircle(ctx, cx, cy, Rc, innerW);
+
+  const inner = Rc + innerW / 2;
+  const edge = S / 2 - rim;
+  const band = edge - inner;
+  const mid = inner + band / 2;
+  const units = ringUnits(o.lang, o.chars, o.baseChars, o.text);
+  const { step, markerW, angles } = sealRingSlots(units.length);
+  const L = ROUND_SEAL.levels[level];
+  // 칸: 높이는 띠의 일정 비율, 폭은 이웃 칸과 부딪치지 않는 만큼. 글자가 많아 홀쭉해지면 높이도 줄인다
+  let cellH = Math.min(S * C.cellH, band * C.band);
+  let sw = S * 0.015;
+  let cellW = cellH * C.aspect;
+  for (let i = 0; i < 3; i++) {
+    cellW = Math.min(cellH * C.aspect, ringCellMaxW(mid, cellH, step, sw * ROUND_SEAL.gap));
+    if (cellW < cellH * 0.6) cellH = cellW / 0.6;
+    sw = Math.min(S * 0.03, Math.max(S * 0.006, Math.min(cellW, cellH) * L.k * C.stroke));
+  }
+  const widthOf = (c) => {
+    const g = roundGlyphInfo(c, level, sw, cellW, cellH);
+    return g && g.aspect < 1 ? Math.min(cellW, cellH * g.aspect * C.latin) : cellW;
+  };
+  // 획이 아주 많은 음절은 둘레 글자 전체 획을 가늘게 (최대 40%)
+  const base = sw;
+  for (let i = 0; i < 3; i++) {
+    const lw = sw * ROUND_SEAL.draw;
+    const fit = Math.min(1, ...units.filter((c) => c !== SEP).map((c) => roundGlyphInfo(c, level, sw, widthOf(c) - lw, cellH - lw)?.fit ?? 1));
+    if (fit > 0.995 || sw <= base * 0.6) break;
+    sw = Math.max(base * 0.6, sw * fit * 0.97);
+  }
+  const opt = { lw: sw * ROUND_SEAL.draw, sw, level, font: o.font, corner: ROUND_SEAL.corner * sw };
+  units.forEach((c, i) => {
+    const a = -Math.PI / 2 + angles[i];
+    const x = cx + Math.cos(a) * mid;
+    const y = cy + Math.sin(a) * mid;
+    if (c === SEP) {
+      dot(ctx, x, y, S * C.sep);
+      return;
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a + Math.PI / 2);
+    drawRoundGlyph(ctx, c, 0, 0, widthOf(c), cellH, opt);
+    ctx.restore();
+  });
+
+  // 맨 위 표시: 양옆 글자 사이 빈자리에 맞춘다
+  const room = (markerW + 1) * step * mid - cellW;
+  if (marker === 'star') drawStar(ctx, cx, cy - mid, Math.min(S * C.star, room * 0.4));
+  else dot(ctx, cx, cy - mid, Math.min(S * C.dot, room * 0.3));
+
+  sealCenterIn(ctx, o, cx, cy, Rc - innerW / 2);
+  return canvas;
+}
+
+// ───────────── 인감체 직인 · 인감체 별 직인 (참고한 인감 도장의 법인 직인) ─────────────
+// 가는 테, 맨 위 ● 또는 ★, 둘레 이름은 인감체 글꼴(INGAM_FONT)을 칸에 꽉 차게 늘려 머리가 바깥을 향하게,
+// 가는 가운데 원 안에 가운데 글자(한자는 기본 직인보다 가는 본명조 500, shape.centerFont).
+// 다른 작업과 겹치지 않도록 이 묶음은 파일 끝에 덧붙인다 (모양·그리기 함수 등록 포함).
+// 가져오기 선언은 파일 어디에 있어도 모듈을 읽기 전에 처리된다
+import { INGAM_FONT, INGAM_CENTER_FONT } from './fonts.js';
+import { drawIngamGlyph } from './stamp-seal-extra.js';
+
+RING_EXTRA_SHAPES.push(
+  ring('ring-thin-dot', '인감체 직인', { font: INGAM_FONT, centerFont: INGAM_CENTER_FONT }),
+  ring('ring-thin-star', '인감체 별 직인', { font: INGAM_FONT, centerFont: INGAM_CENTER_FONT }),
+);
+Object.assign(RING_EXTRA_DRAW, {
+  'ring-thin-dot': (o) => drawIngamRing(o, 'dot'),
+  'ring-thin-star': (o) => drawIngamRing(o, 'star'),
+});
+
+/**
+ * 참고 이미지(4자)에서 잰 비율 (S 배수): 테 0.025, 가운데 원 반지름 0.265·굵기 0.015, 글자 칸 가운데 반지름 0.378,
+ * 칸 0.165(둘레 방향)×0.15(반지름 방향). 맨 위 빈자리는 글자 사이 각도의 1.44배 (4자면 58.5°·138°·221.5°·301.5°)
+ */
+const INGAM_RING = { rim: 0.025, inner: 0.015, Rc: 0.265, r: 0.378, cellW: 0.165, cellH: 0.15, topGap: 1.44, gap: 0.02, dot: 0.038, star: 0.048, sep: 0.012 };
+
+function drawIngamRing(o, marker) {
+  const K = INGAM_RING;
+  const { S, canvas, ctx, cx, cy } = sheet(o);
+  const lw = Math.max(1.5, S * K.rim);
+  strokeCircle(ctx, cx, cy, S / 2 - lw / 2, lw);
+  const ilw = Math.max(1.2, S * K.inner);
+  const Rc = S * K.Rc;
+  strokeCircle(ctx, cx, cy, Rc, ilw);
+
+  // 둘레 글자: 맨 위 빈자리를 빼고 고르게 (짧은 이름은 ringUnits 가 점을 끼워 되풀이한다)
+  const units = ringUnits(o.lang, o.chars, o.baseChars, o.text);
+  const step = TAU / (units.length - 1 + K.topGap);
+  const first = (K.topGap * step) / 2;
+  const r = S * K.r;
+  // 칸 폭: 이웃 칸의 안쪽 모서리끼리 K.gap 만큼 떨어지게. 칸이 좁아지면 높이도 줄여 지나치게 홀쭉해지지 않게 한다
+  const cellW = Math.min(S * K.cellW, 2 * (r - (S * K.cellH) / 2) * Math.tan(step / 2) - S * K.gap);
+  const cellH = Math.min(S * K.cellH, cellW / 0.6);
+  // 글자 획: 칸 크기에 비례하되 가운데 원 선보다 가늘지 않게. 그보다 굵게 늘어난 글자는 깎는다 (drawIngamGlyph)
+  const stroke = Math.max(S * K.inner, Math.min(cellW, cellH) * 0.1);
+  useFont(ctx, o.font);
+  units.forEach((c, i) => {
+    const a = -Math.PI / 2 + first + step * i;
+    const x = cx + Math.cos(a) * r;
+    const y = cy + Math.sin(a) * r;
+    if (c === SEP) {
+      dot(ctx, x, y, S * K.sep);
+      return;
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(a + Math.PI / 2);
+    drawIngamGlyph(ctx, c, 0, 0, cellW, cellH, { font: o.font, stroke });
+    ctx.restore();
+  });
+
+  // 맨 위 표시: 양옆 글자 사이 빈자리에 들어가는 크기까지
+  const free = K.topGap * step * r - cellW;
+  if (marker === 'star') drawStar(ctx, cx, cy - r, Math.min(S * K.star, free * 0.36));
+  else dot(ctx, cx, cy - r, Math.min(S * K.dot, free * 0.3));
+
+  // 가운데 글자: 참고 이미지처럼 가운데 원을 넉넉히 채운다. drawSealCenter 는 r 의 0.9 배 원 안에 넣으므로
+  // 1.12 배면 가장 촘촘한 4×4(이름 14자)도 글자 상자가 가운데 원 선 안쪽에 머문다
+  drawSealCenter(ctx, {
+    lang: o.lang, chars: o.chars, text: o.text, font: o.font, order: o.order ?? 'horizontal', sealCenter: o.sealCenter,
+    cx, cy, r: (Rc - ilw / 2) * 1.12, hanjaFont: o.shape.centerFont ?? INGAM_CENTER_FONT,
+  });
   return canvas;
 }

@@ -12,12 +12,14 @@ const IDS = [
 ];
 
 test('인장체 추가 12종: id·분류·이름표·그리기 함수', () => {
-  assert.deepEqual(SEAL_EXTRA_SHAPES.map((s) => s.id), IDS);
-  assert.equal(new Set(SEAL_EXTRA_SHAPES.map((s) => s.id)).size, 12, 'id 중복');
-  assert.equal(new Set(SEAL_EXTRA_SHAPES.map((s) => s.label)).size, 12, '이름 중복');
+  // 조사 기반 12종이 앞에, 참고 도장 재현(인감체 2·삼첩 원·둥근 인장체 6)이 뒤에 붙는다
+  assert.deepEqual(SEAL_EXTRA_SHAPES.slice(0, 12).map((s) => s.id), IDS);
+  assert.equal(SEAL_EXTRA_SHAPES.length, 21);
+  assert.equal(new Set(SEAL_EXTRA_SHAPES.map((s) => s.id)).size, 21, 'id 중복');
+  assert.equal(new Set(SEAL_EXTRA_SHAPES.map((s) => s.label)).size, 21, '이름 중복');
   for (const s of SEAL_EXTRA_SHAPES) {
     assert.equal(s.cat, 'seal', s.id);
-    assert.equal(s.fontLabel, '인장체', s.id);
+    assert.ok(['인장체', '인감체'].includes(s.fontLabel), s.id);
     assert.ok(s.label.length > 0 && Array.from(s.label).length <= 8, `${s.id}: 이름 길이 ${s.label}`);
     assert.equal(typeof SEAL_EXTRA_DRAW[s.special], 'function', `${s.id}: 그리기 함수 ${s.special}`);
   }
@@ -27,11 +29,11 @@ test('인장체 추가 12종: id·분류·이름표·그리기 함수', () => {
 
 test('인장체 추가 12종: 전체 목록 끝에 붙고 기존 인장체 4종과 id 가 겹치지 않는다', () => {
   const seal = STAMP_SHAPES.filter((s) => s.cat === 'seal');
-  assert.deepEqual(seal.map((s) => s.id), ['seal-square', 'seal-circle', 'seal-folded-square', 'seal-folded-circle', ...IDS]);
-  assert.deepEqual(STAMP_SHAPES.slice(-12).map((s) => s.id), IDS);
+  assert.deepEqual(seal.map((s) => s.id).slice(0, 16), ['seal-square', 'seal-circle', 'seal-folded-square', 'seal-folded-circle', ...IDS]);
+  assert.deepEqual(STAMP_SHAPES.slice(-21).map((s) => s.id), SEAL_EXTRA_SHAPES.map((s) => s.id));
   assert.equal(new Set(STAMP_SHAPES.map((s) => s.id)).size, STAMP_SHAPES.length, '전체 id 중복');
   // 기존 모양의 special 을 가로채지 않는다
-  const old = new Set(STAMP_SHAPES.slice(0, -12).map((s) => s.special).filter(Boolean));
+  const old = new Set(STAMP_SHAPES.slice(0, -21).map((s) => s.special).filter(Boolean));
   for (const s of SEAL_EXTRA_SHAPES) assert.ok(!old.has(s.special), s.special);
 });
 

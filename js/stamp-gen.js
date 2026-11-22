@@ -1,4 +1,4 @@
-// 이름 → 도장 이미지 (80종)
+// 이름 → 도장 이미지 (97종)
 import { fontString } from './fonts.js';
 import { gridFor, cellOrder, fillScale, largestRectInPolygon, polygonPoints, rectInEllipse } from './core/geometry.js';
 import { createRandom, hashString } from './core/random.js';
@@ -10,15 +10,16 @@ import { SEAL_EXTRA_SHAPES, SEAL_EXTRA_DRAW } from './stamp-seal-extra.js';
 const BASE = 400; // mult = 1 일 때 도장 기준 크기(px)
 const MEASURE_PX = 200;
 
+// 둘레글자를 맨 앞에 둔다: 분류 버튼 순서이자 '전체'에서 카드가 나오는 순서 (app.js CAT_ORDER)
 export const STAMP_CATEGORIES = [
   { id: 'all', label: '전체' },
+  { id: 'ring', label: '둘레글자' },
   { id: 'circle', label: '원형' },
   { id: 'ellipse', label: '타원형' },
   { id: 'square', label: '사각형' },
   { id: 'poly', label: '다각형·기타' },
   { id: 'line', label: '가로·세로형' },
   { id: 'seal', label: '인장체' },
-  { id: 'ring', label: '둘레글자' },
   { id: 'office', label: '날짜·결재' },
 ];
 
@@ -565,6 +566,32 @@ export const SEAL_CENTERS = [
 export const SEAL_CENTER_FONT = { family: 'Noto Serif KR', weight: 900, label: '본명조' };
 /** app.js·MCP 가 미리 받을 가운데 글자 전체 */
 export const SEAL_CENTER_TEXT = SEAL_CENTERS.map((c) => c.text ?? '').join('');
+
+/**
+ * 모양에 쓸 글꼴 (app.js·MCP 공통): 모양이 정한 글꼴(shape.font, 인감체 등) > 고른 글꼴 > 추천 조합.
+ * 추천 조합은 모양마다 글꼴을 목록 순서대로 돌려 쓴다 (분류를 바꿔도 같은 모양은 같은 글꼴)
+ */
+export function stampFont(shape, fonts, chosen) {
+  return shape.font ?? chosen ?? fonts[STAMP_SHAPES.indexOf(shape) % fonts.length];
+}
+/** 가운데 글자 선택지(직인 가운데)를 쓰는 모양. 추가 모양은 sealCenter 표시로, 표시가 없는 기존 둘레글자 원·별 직인은 special 로 본다 */
+export function usesSealCenter(shape) {
+  return Boolean(shape && (shape.sealCenter || shape.special === 'ring' || shape.special === 'ring-star'));
+}
+/** 가운데 한자(代表理事·印)를 그릴 글꼴: 모양이 정한 글꼴(shape.centerFont) 또는 본명조 900 */
+export function sealCenterFont(shape) {
+  return shape.centerFont ?? SEAL_CENTER_FONT;
+}
+/** 보이는 모양들이 가운데 한자에 쓰는 글꼴 (글꼴·굵기마다 한 번씩) */
+export function sealCenterFonts(shapes) {
+  const seen = new Map();
+  for (const sh of shapes) {
+    if (!usesSealCenter(sh)) continue;
+    const f = sealCenterFont(sh);
+    seen.set(`${f.family}|${f.weight}`, f);
+  }
+  return [...seen.values()];
+}
 const SEP = null; // 둘레에서 짧은 이름을 되풀이할 때 사이에 넣는 작은 점
 
 function drawRing(o) {
@@ -667,7 +694,7 @@ function strokeCircle(ctx, cx, cy, r, width) {
  * 가운데 원 안의 글자. 한자(代表理事·印)는 오른쪽 열부터 세로로, 한글과 이름은 '읽는 순서'를 따른다.
  * 영문 이름은 머리글자(별을 고르면 별)
  */
-function drawSealCenter(ctx, { lang, chars, text, font, order, sealCenter, cx, cy, r }) {
+function drawSealCenter(ctx, { lang, chars, text, font, order, sealCenter, cx, cy, r, hanjaFont = SEAL_CENTER_FONT }) {
   const choice = SEAL_CENTERS.find((c) => c.id === sealCenter) ?? SEAL_CENTERS[0];
   if (choice.id === 'star') {
     drawStar(ctx, cx, cy, r * 0.8);
@@ -696,7 +723,7 @@ function drawSealCenter(ctx, { lang, chars, text, font, order, sealCenter, cx, c
   const ch = box.height / rows;
   const x0 = cx - box.width / 2;
   const y0 = cy - box.height / 2;
-  ctx.font = fontString(choice.hanja ? SEAL_CENTER_FONT : font, MEASURE_PX);
+  ctx.font = fontString(choice.hanja ? hanjaFont : font, MEASURE_PX);
   glyphs.forEach((g, i) => {
     const line = Math.floor(i / major);
     const pos = i % major;
@@ -1249,6 +1276,8 @@ function clamp(v, lo, hi) {
 const SEAL_STROKE = { plain: 0.105, folded: 0.058 };
 // 원형 테: 글자 격자(정사각)를 원 안에 펴 넣는 정도. 0 이면 내접 정사각, 1 이면 격자 가장자리가 원을 따라 휜다
 const SEAL_WARP = 0.35;
+// 테 안쪽과 글자 사이 (획 굵기 배). 1.5 이면 보이는 틈이 획 하나뿐이라 글자가 테에 붙어 보였다 (참고 도장은 획 두 개쯤)
+const SEAL_PAD = 2.5;
 
 function drawSeal({ lang, chars, text, shape, font, order = 'horizontal', ink, mult = 1 }) {
   const S = BASE * mult;
@@ -1289,7 +1318,7 @@ function drawSeal({ lang, chars, text, shape, font, order = 'horizontal', ink, m
 /** 글자 칸 배치 (도장 가운데 기준 좌표). size 는 획 굵기를 정할 때 쓰는 칸 크기 */
 function sealPlan({ ko, chars, content, lines, order, round, S, lw }) {
   const gap = lw * 2.2; // 글자 사이 흰 틈 (자모 사이 틈보다 조금 넓게 해 음절 경계가 보이게)
-  const inner = S - lw * 2 - lw * 1.5 * 2; // 테 안쪽에서 획 굵기의 1.5배를 띄운다
+  const inner = S - lw * 2 - lw * SEAL_PAD * 2; // 테 안쪽에서 획 굵기의 SEAL_PAD 배를 띄운다
   // 원형은 정사각 격자를 원 안으로 펴 넣는다(discWarp). 가장자리가 눌리는 만큼 획 굵기를 정할 칸을 작게 본다
   const w = inner;
   const h = inner;

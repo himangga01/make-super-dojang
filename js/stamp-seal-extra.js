@@ -1,15 +1,16 @@
-// 인장체 추가 디자인 12종. stamp-gen.js 가 모양 목록과 그리기 함수를 합친다.
+// 인장체 추가 디자인 12종과 인감체 2종·둥근 인장체 6종·삼첩 원. stamp-gen.js 가 모양 목록과 그리기 함수를 합친다.
 // 그리기 도구는 stamp-gen.js 에서 가져온다 (순환 가져오기: 함수 안에서만 쓴다)
 //
 // 글자 획은 기본 인장체(drawSeal)와 같은 core/seal-glyph.js 의 꺾은선이다. 여기서는 테·칸·배치와
 // 그리는 방법(지워 내기, 둥근 끝, 모서리 굴리기, 돌려 놓기, 칸 잇기)만 바꾼다.
 // lw 는 글자 획 굵기(자모 간격도 이 값으로 정한다), S 는 도장 기준 크기(BASE × mult).
 import {
-  BASE, MEASURE_PX, makeCanvas, clamp, applyBleed, roundRectPath, koContent,
+  BASE, MEASURE_PX, makeCanvas, clamp, applyBleed, roundRectPath, koContent, drawFittedGlyph,
   sealGridCells, sealThreeCells, sealLines, sealLineCells, sealChar, discWarp, subdivide, rrectPoints, SEAL_STROKE, SEAL_WARP,
 } from './stamp-gen.js';
 import { sealGlyph } from './core/seal-glyph.js';
-import { fontString } from './fonts.js';
+import { cellOrder, fillScale } from './core/geometry.js';
+import { fontString, INGAM_FONT } from './fonts.js';
 
 const shape = (id, label, extra = {}) => ({ id, label, cat: 'seal', special: id, fontLabel: '인장체', ...extra });
 
@@ -28,6 +29,17 @@ export const SEAL_EXTRA_SHAPES = [
   shape('seal-fold3', '삼첩 사각'),
   shape('seal-radial', '방사 인장'),
   shape('seal-royal', '어보 구첩'),
+  // 인감체: 인장체 획 대신 정해 둔 웹 글꼴(INGAM_FONT)을 칸에 꽉 차게 늘려 쓴다. 글꼴 선택을 따르지 않는다 (app.js stampFont)
+  shape('seal-thin-square', '인감체 사각', { fontLabel: '인감체', font: INGAM_FONT }),
+  shape('seal-thin-circle', '인감체 원', { fontLabel: '인감체', font: INGAM_FONT }),
+  shape('seal-fold3-circle', '삼첩 원'),
+  // 둥근 인장체: 가는 획 · 둥근 끝 · 둥근 꺾임 (기본형 · 삼첩 · 구첩 × 사각 · 원)
+  shape('seal-round-plain-square', '둥근 인장 사각'),
+  shape('seal-round-fold3-square', '둥근 삼첩 사각'),
+  shape('seal-round-folded-square', '둥근 구첩 사각'),
+  shape('seal-round-plain-circle', '둥근 인장 원'),
+  shape('seal-round-fold3-circle', '둥근 삼첩 원'),
+  shape('seal-round-folded-circle', '둥근 구첩 원'),
 ];
 
 /** special 값 → 그리기 함수 */
@@ -44,6 +56,15 @@ export const SEAL_EXTRA_DRAW = {
   'seal-fold3': (o) => drawFramed(o, framed().fold3),
   'seal-radial': drawRadial,
   'seal-royal': (o) => drawFramed(o, framed().royal),
+  'seal-thin-square': (o) => drawIngam(o, false),
+  'seal-thin-circle': (o) => drawIngam(o, true),
+  'seal-fold3-circle': drawFold3Circle,
+  'seal-round-plain-square': (o) => drawRoundSeal(o, { level: 'plain', round: false }),
+  'seal-round-fold3-square': (o) => drawRoundSeal(o, { level: 'fold3', round: false }),
+  'seal-round-folded-square': (o) => drawRoundSeal(o, { level: 'folded', round: false }),
+  'seal-round-plain-circle': (o) => drawRoundSeal(o, { level: 'plain', round: true }),
+  'seal-round-fold3-circle': (o) => drawRoundSeal(o, { level: 'fold3', round: true }),
+  'seal-round-folded-circle': (o) => drawRoundSeal(o, { level: 'folded', round: true }),
 };
 
 // ───────────── 공통: 획 굵기와 글자 칸 ─────────────
@@ -271,15 +292,15 @@ const framed = () => ({
   // 관인처럼 굵은 테와 그보다 가는 글자, 테와 글자 사이를 넉넉히
   thick: { outline: 'rect', radius: 0.03, rings: [{ w: 0.075 }], pad: (lw, S) => Math.max(lw * 2, S * 0.038), k: 0.09, max: 0.034 },
   // 바깥 테 · 틈 · 가는 안쪽 테
-  double: { outline: 'circle', rings: [{ w: 0.04 }, { gap: 0.025, w: 0.018 }], pad: (lw) => lw * 1.4, k: 0.105, squeeze: 0.76, warp: SEAL_WARP },
+  double: { outline: 'circle', rings: [{ w: 0.04 }, { gap: 0.025, w: 0.018 }], pad: (lw) => lw * 2.4, k: 0.105, squeeze: 0.76, warp: SEAL_WARP },
   // 가는 획, 둥근 끝, 넓은 틈 (부전서체처럼 부드럽게). 자모 간격은 기본 굵기로 잡고 획만 가늘게 긋는다
-  fine: { outline: 'circle', rings: [{ lw: 0.75 }], pad: (lw) => lw * 1.6, k: 0.105, squeeze: 0.76, warp: SEAL_WARP, draw: 0.55, gap: 3, cap: 'round', join: 'round' },
+  fine: { outline: 'circle', rings: [{ lw: 0.75 }], pad: (lw) => lw * 2.6, k: 0.105, squeeze: 0.76, warp: SEAL_WARP, draw: 0.55, gap: 3, cap: 'round', join: 'round' },
   // 꺾인 곳은 원호, ㅇ 은 타원, 둥근 끝, 모서리가 둥근 테
-  curve: { outline: 'rect', radius: 0.1, rings: [{ lw: 1 }], pad: (lw) => lw * 1.6, k: 0.105, corner: 1.2, oval: true, cap: 'round', join: 'round' },
+  curve: { outline: 'rect', radius: 0.1, rings: [{ lw: 1 }], pad: (lw) => lw * 2.4, k: 0.105, corner: 1.2, oval: true, cap: 'round', join: 'round' },
   // 한 번만 되접는 가벼운 구첩
-  fold3: { outline: 'rect', radius: 0.02, rings: [{ lw: 1 }], pad: (lw) => lw * 1.5, k: 0.078, style: 'folded', folds: 1 },
+  fold3: { outline: 'rect', radius: 0.02, rings: [{ lw: 1 }], pad: (lw) => lw * 2.5, k: 0.078, style: 'folded', folds: 1 },
   // 어보: 아주 굵은 테 · 좁은 틈 · 가는 안쪽 선, 안에 구첩
-  royal: { outline: 'rect', radius: 0.025, rings: [{ w: 0.085 }, { gap: 0.02, w: 0.014 }], pad: (lw) => lw * 1.5, k: SEAL_STROKE.folded, style: 'folded' },
+  royal: { outline: 'rect', radius: 0.025, rings: [{ w: 0.085 }, { gap: 0.02, w: 0.014 }], pad: (lw) => lw * 2.2, k: SEAL_STROKE.folded, style: 'folded' },
 });
 
 /** 테 겹들의 [바깥에서 테 가운데선까지 거리, 굵기] 와 안쪽 끝까지의 두께 */
@@ -384,8 +405,8 @@ function tilesFor(cells, half, { byCol, perLine }) {
 }
 
 const TILE = {
-  mixed: { divider: 0.9, margin: 1.4 }, // 주백상간: 칸 나눔선 굵기, 칸 끝과 글자 사이 (lw 배수)
-  cross: { divider: 0.8, margin: 1.5 },
+  mixed: { divider: 0.9, margin: 2 }, // 주백상간: 칸 나눔선 굵기, 칸 끝과 글자 사이 (lw 배수)
+  cross: { divider: 0.8, margin: 2 },
 };
 
 function drawTiled(o, { mixed }) {
@@ -681,7 +702,7 @@ export function ovalContent(n) {
 
 function drawOval(o) {
   const { ink, font } = o;
-  const pad = 1.5;
+  const pad = 2.5;
   const st = setup(o, {
     k: SEAL_STROKE.plain,
     squeeze: 0.8,
@@ -737,7 +758,7 @@ const RADIAL_ASPECT = { 2: 1.25, 3: 1, 4: 1, 5: 0.94 };
 function drawRadial(o) {
   const units = radialUnits(o);
   const { ink, font, order = 'horizontal' } = o;
-  const pad = 1.4;
+  const pad = 2.2;
   const dot = (lw, S) => Math.max(lw * 1.3, S * 0.04);
   const st = setup(o, units
     ? {
@@ -782,5 +803,244 @@ function drawRadial(o) {
     const warp = discWarp(cx, cy, st.w / 2, SEAL_WARP);
     for (const c of cells) drawGlyph(ctx, c.ch, cx + c.cx, cy + c.cy, c.w, c.h, { lw, font, warp });
   }
+  return canvas;
+}
+
+// ───────────── 삼첩 원 (삼첩 사각을 원 테에: 격자를 원 안에 펴 넣는다) ─────────────
+
+function drawFold3Circle(o) {
+  return drawFramed(o, { ...framed().fold3, outline: 'circle', radius: 0, squeeze: 0.76, warp: SEAL_WARP });
+}
+
+// ───────────── 둥근 인장체 (가는 획 · 둥근 끝 · 둥근 꺾임 · 알약꼴 ㅇ) ─────────────
+// 자모 간격과 글자 사이는 굵은 획(sw) 기준으로 넉넉히 잡고, 획은 그 draw 배로 가늘게 긋는다.
+// 꺾인 곳은 corner(sw 배) 반지름으로 굴리고, ㅇ 은 짧은 변 절반을 반지름으로 해 알약꼴로 늘린다.
+// 둘레글자 인장체 직인(stamp-ring-extra.js)도 이 값과 drawRoundGlyph 로 둘레 글자를 긋는다
+
+/**
+ * 단계: plain 기본형, fold3 한 번 되접기(삼첩), folded 구첩. k 는 칸 짧은 변에 곱할 간격용 획 굵기.
+ * 둥근 꼴에서는 ㅇ 을 겹 테 없이 알약 하나로 두고(ringFolds 0: 겹 테가 과녁처럼 보여 알약꼴과 어울리지 않는다),
+ * ㅊ·ㅎ 꼭지는 짧은 가로획으로 긋는다(flatTick)
+ */
+export const ROUND_SEAL = {
+  flatTick: true,
+  draw: 0.72, // 긋는 굵기 / 간격용 굵기
+  corner: 1.1, // 꺾인 곳 반지름 (간격용 굵기 배수)
+  gap: 2.2, // 글자 사이 (간격용 굵기 배수)
+  frame: 0.022, // 테 굵기 (S 배수)
+  pad: { square: 0.06, circle: 0.05 }, // 테 안쪽과 글자 영역 사이 (S 배수)
+  warp: 0.35, // 원: 격자를 원 안에 펴 넣는 정도 (discWarp, 인장체 원의 SEAL_WARP 와 같은 값)
+  levels: {
+    plain: { style: 'plain', k: 0.09 },
+    fold3: { style: 'folded', folds: 1, ringFolds: 0, k: 0.075 },
+    folded: { style: 'folded', folds: 3, ringFolds: 0, k: 0.06 },
+  },
+};
+
+/** 글자 하나의 인장체 획 (paths · shapes · aspect · fit). 인장체가 없는 글자는 null */
+export function roundGlyphInfo(ch, level, sw, iw, ih) {
+  const L = ROUND_SEAL.levels[level] ?? ROUND_SEAL.levels.plain;
+  const stroke = { x: sw / Math.max(1e-3, iw), y: sw / Math.max(1e-3, ih) };
+  return sealGlyph(sealChar(ch), { style: L.style, folds: L.folds, ringFolds: L.ringFolds, flatTick: ROUND_SEAL.flatTick, stroke });
+}
+
+/**
+ * 둥근 인장체 글자 하나를 칸(cx, cy, w, h)에 꽉 차게 긋는다. lw 긋는 굵기, sw 자모 간격용 굵기, corner 꺾인 곳 반지름(px).
+ * 인장체가 없는 글자는 drawGlyph 처럼 고른 글꼴로
+ */
+export function drawRoundGlyph(ctx, ch, cx, cy, w, h, { lw, sw = lw, level = 'plain', font, warp = null, corner = 0 }) {
+  const iw = Math.max(1e-3, w - lw);
+  const ih = Math.max(1e-3, h - lw);
+  const g = roundGlyphInfo(ch, level, sw, iw, ih);
+  if (!g) {
+    drawGlyph(ctx, ch, cx, cy, w, h, { lw, font });
+    return;
+  }
+  const x0 = cx - iw / 2;
+  const y0 = cy - ih / 2;
+  const map = ([x, y]) => [x0 + x * iw, y0 + y * ih];
+  const lines = g.paths.map((path) => {
+    const last = path[path.length - 1];
+    const closed = path.length > 3 && last[0] === path[0][0] && last[1] === path[0][1];
+    return { pts: (closed ? path.slice(0, -1) : path).map(map), closed };
+  });
+  for (const s of g.shapes) {
+    const [x, y] = map([s.x, s.y]);
+    const sw2 = s.w * iw;
+    const sh2 = s.h * ih;
+    lines.push({ rrect: [x, y, sw2, sh2, Math.min(sw2, sh2) / 2], closed: true });
+  }
+  strokeLines(ctx, lines, { lw, cap: 'round', join: 'round', corner, warp });
+}
+
+function drawRoundSeal(o, { level, round }) {
+  const R = ROUND_SEAL;
+  const L = R.levels[level];
+  const pad = round ? R.pad.circle : R.pad.square;
+  const st = setup(o, {
+    k: L.k,
+    style: L.style,
+    folds: L.folds,
+    draw: R.draw,
+    gap: R.gap,
+    squeeze: round ? 0.76 : 1,
+    min: 0.01,
+    area: (lw, S) => {
+      const side = S - 2 * S * (R.frame + pad);
+      return { w: side, h: side };
+    },
+  });
+  const { S, lw, cells, w: area } = st;
+  const m = Math.max(lw * 1.5, S * 0.04);
+  const { canvas, ctx, cx, cy } = newCanvas(S, S, m, o.ink);
+  const frame = Math.max(1, S * R.frame);
+  if (round) strokeEllipseFrame(ctx, cx, cy, S, S, frame);
+  else strokeRectFrame(ctx, cx, cy, S, S, frame, 0);
+  const warp = round ? discWarp(cx, cy, area / 2, R.warp) : null;
+  const opt = { lw: lw * R.draw, sw: lw, level, font: o.font, warp, corner: R.corner * lw };
+  for (const c of cells) drawRoundGlyph(ctx, c.ch, cx + c.cx, cy + c.cy, c.w, c.h, opt);
+  return canvas;
+}
+
+// ───────────── 인감체 사각 · 인감체 원 (웹 글꼴 글자를 칸에 꽉 차게 늘려 쓴다) ─────────────
+// 참고한 인감 도장(4자 2×2)에서 잰 비율: 가는 테, 글자는 칸을 가로세로 모두 채우고(비율 고정 없음),
+// 칸 사이는 가로로 넓게(칸 폭의 18%) 세로로 좁게(칸 높이의 8%). 사각은 테 바깥에서 글자까지 0.095S,
+// 원은 테 안쪽 원에 내접하는 정사각에 글자를 넣는다. 글자 획은 칸 크기 × stroke 로 고르게 맞추고, 테는 그 0.8배
+// (참고 이미지 획 폭을 알파 합으로 재면 테 2.8%, 글자 세로획 3.3~3.6% — 4자 사각, 도장 크기 대비).
+// 둘레글자 인감체 직인(stamp-ring-extra.js)도 아래 글자 도구를 쓴다
+
+const INGAM = { inset: 0.095, gapX: 0.18, gapY: 0.08, circlePad: 0.035, stroke: 0.092, frame: 0.8 };
+
+/**
+ * 글자를 칸에 맞출 가로세로 비율 범위 [min, max]. 한글·한자 한 자와 여러 글자(영문 줄)는 칸을 꽉 채우도록 크게 바꾸고,
+ * 영문 한 자처럼 본래 폭이 들쭉날쭉한 글자는 덜 바꾼다 (I 가 굵은 막대가 되지 않게)
+ */
+export function ingamAspect(text) {
+  if (Array.from(text).length > 1 || /^[가-힣一-鿿]$/.test(text)) return [0.3, 3];
+  return [0.55, 1.6];
+}
+
+/** 칸 w×h 에 맞춰 늘린 배율 (drawFittedGlyph 와 같은 계산). ctx.font 는 MEASURE_PX 크기 글꼴이어야 한다 */
+function ingamScale(ctx, text, w, h) {
+  const m = ctx.measureText(text);
+  const gw = (m.actualBoundingBoxLeft ?? 0) + (m.actualBoundingBoxRight ?? m.width);
+  const gh = (m.actualBoundingBoxAscent ?? MEASURE_PX * 0.8) + (m.actualBoundingBoxDescent ?? MEASURE_PX * 0.2);
+  return fillScale(gw, gh, w, h, ...ingamAspect(text));
+}
+
+/** 칸에 늘려 그린 글자의 획 굵기(px): 글꼴의 stem(글꼴 크기 대비 획 굵기) × 가로·세로 배율 평균 */
+export function ingamStroke(ctx, text, w, h, font) {
+  const { sx, sy } = ingamScale(ctx, text, w, h);
+  return (MEASURE_PX * (font?.stem ?? 0.06) * (sx + sy)) / 2;
+}
+
+/**
+ * 인감체 글자 하나(영문은 한 줄)를 칸 가운데 (cx, cy) 의 w×h 에 꽉 차게.
+ * stroke(px)를 주면, 늘린 뒤 획이 그보다 굵은 글자는 글자 윤곽을 따라 지워 그만큼 가늘게 한다:
+ * 작게 디자인된 글자(하이멜로디의 '이'·'사'는 글꼴 크기의 절반 높이)를 칸에 맞춰 크게 늘려도 다른 글자와 획 굵기가 같다
+ */
+export function drawIngamGlyph(ctx, text, cx, cy, w, h, { font, stroke } = {}) {
+  const [lo, hi] = ingamAspect(text);
+  drawFittedGlyph(ctx, text, cx, cy, w, h, lo, hi);
+  if (!(stroke > 0) || typeof ctx.strokeText !== 'function') return; // 테스트의 가짜 canvas 에는 strokeText 가 없다
+  const m = ctx.measureText(text);
+  const left = m.actualBoundingBoxLeft ?? 0;
+  const right = m.actualBoundingBoxRight ?? m.width;
+  const ascent = m.actualBoundingBoxAscent ?? MEASURE_PX * 0.8;
+  const descent = m.actualBoundingBoxDescent ?? MEASURE_PX * 0.2;
+  const { sx, sy } = fillScale(left + right, ascent + descent, w, h, lo, hi);
+  // 글꼴 크기(MEASURE_PX) 기준으로 지울 두께 (획 양쪽에서 반씩). 획이 사라지지 않게 본래 굵기의 70%까지만
+  const stem = MEASURE_PX * (font?.stem ?? 0.06);
+  const cut = Math.min(stem - (2 * stroke) / (sx + sy), stem * 0.7);
+  if (cut <= 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.translate(cx, cy);
+  ctx.scale(sx, sy);
+  ctx.lineWidth = cut;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(text, (left - right) / 2, (ascent - descent) / 2);
+  ctx.restore();
+}
+
+/** 칸 n 개와 그 사이 틈(칸 크기 × gap)이 span 을 채울 때의 칸 크기 */
+const ingamCell = (span, n, gap) => span / (n + gap * (n - 1));
+
+/**
+ * 인감체 칸 배치 (도장 가운데 기준 좌표, w×h 영역). 한글은 koContent 격자(3자는 성을 크게),
+ * 끝 줄(세로 읽기는 끝 열)이 덜 차면 남은 글자를 늘려 채운다(칸 두 배까지). 영문은 줄마다 한 칸
+ */
+export function ingamCells({ ko, chars, content, lines, order = 'horizontal', w, h }) {
+  const { gapX, gapY } = INGAM;
+  if (!ko) {
+    const ch = ingamCell(h, lines.length, gapY);
+    return lines.map((t, i) => ({ ch: t, cx: 0, cy: -h / 2 + i * ch * (1 + gapY) + ch / 2, w, h: ch }));
+  }
+  if (content.three) {
+    const [a, b, c] = chars;
+    const cw = ingamCell(w, 2, gapX);
+    const ch = ingamCell(h, 2, gapY);
+    const left = -w / 2 + cw / 2;
+    const right = w / 2 - cw / 2;
+    const top = -h / 2 + ch / 2;
+    const bottom = h / 2 - ch / 2;
+    if (order === 'vertical') return [{ ch: a, cx: right, cy: 0, w: cw, h }, { ch: b, cx: left, cy: top, w: cw, h: ch }, { ch: c, cx: left, cy: bottom, w: cw, h: ch }];
+    return [{ ch: a, cx: 0, cy: top, w, h: ch }, { ch: b, cx: left, cy: bottom, w: cw, h: ch }, { ch: c, cx: right, cy: bottom, w: cw, h: ch }];
+  }
+  const { cols, rows } = content;
+  const cw = ingamCell(w, cols, gapX);
+  const ch = ingamCell(h, rows, gapY);
+  const cells = cellOrder(chars.length, cols, rows, order).map(({ col, row }, i) => ({
+    ch: chars[i], col, row, cx: -w / 2 + col * cw * (1 + gapX) + cw / 2, cy: -h / 2 + row * ch * (1 + gapY) + ch / 2, w: cw, h: ch,
+  }));
+  if (!cells.length) return cells;
+  const vertical = order === 'vertical' && cols > 1;
+  const key = vertical ? 'col' : 'row';
+  const tail = cells.filter((c) => c[key] === cells[cells.length - 1][key]);
+  if (tail.length < (vertical ? rows : cols)) {
+    const gap = vertical ? gapY : gapX;
+    const size = Math.min(ingamCell(vertical ? h : w, tail.length, gap), (vertical ? ch : cw) * 2);
+    const total = size * tail.length + size * gap * (tail.length - 1);
+    tail.forEach((c, i) => {
+      const p = -total / 2 + i * size * (1 + gap) + size / 2;
+      if (vertical) {
+        c.cy = p;
+        c.h = size;
+      } else {
+        c.cx = p;
+        c.w = size;
+      }
+    });
+  }
+  return cells;
+}
+
+function drawIngam(o, round) {
+  const { lang, chars, text, order = 'horizontal', ink, font, mult = 1 } = o;
+  const S = BASE * mult;
+  const ko = lang === 'ko';
+  const content = ko ? koContent(chars, 'grid', null) : null;
+  const lines = ko ? null : sealLines(text);
+  const { canvas, ctx, cx, cy } = newCanvas(S, S, S * 0.04, ink);
+  ctx.font = fontString(font, MEASURE_PX);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const plan = (lw) => {
+    const side = round ? (S / 2 - lw - S * INGAM.circlePad) * Math.SQRT2 : S * (1 - INGAM.inset * 2);
+    return ingamCells({ ko, chars, content, lines, order, w: side, h: side });
+  };
+  // 글자 획 굵기: 칸 크기에 비례(4자 2×2 사각이면 도장의 약 3.4%). 그보다 굵게 늘어난 글자는 가늘게 깎는다.
+  // 테 굵기: 실제 글자 획 굵기의 가운데 값 × 0.8 (참고 이미지에서 테는 글자 획보다 조금 가늘다)
+  const median = (list) => list.slice().sort((a, b) => a - b)[Math.floor(list.length / 2)];
+  let lw = S * 0.017;
+  let stroke = 0;
+  for (let i = 0; i < 2; i++) {
+    const cells = plan(lw);
+    stroke = clamp(INGAM.stroke * median(cells.map((c) => Math.min(c.w, c.h))), S * 0.014, S * 0.036);
+    lw = clamp(median(cells.map((c) => Math.min(stroke, ingamStroke(ctx, c.ch, c.w, c.h, font)))) * INGAM.frame, S * 0.012, S * 0.03);
+  }
+  if (round) strokeEllipseFrame(ctx, cx, cy, S, S, lw);
+  else strokeRectFrame(ctx, cx, cy, S, S, lw, 0);
+  for (const c of plan(lw)) drawIngamGlyph(ctx, c.ch, cx + c.cx, cy + c.cy, c.w, c.h, { font, stroke });
   return canvas;
 }

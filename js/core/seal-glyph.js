@@ -81,14 +81,19 @@ const BIAS = 0.7; // 자리 비중에 더하는 기본값 (획이 적은 자모�
  * @param {'plain'|'folded'} [o.style]
  * @param {number|{x:number,y:number}} [o.stroke] 획 굵기 (단위 좌표, 가로·세로 따로 줄 수 있다). 자모 간격을 정한다
  * @param {number} [o.folds] folded 에서 되접는 최대 겹 수 (기본 3)
+ * @param {number} [o.ringFolds] folded 에서 ㅇ 안쪽에 더하는 겹 테 최대 수 (기본은 folds 와 같다. 0 이면 ㅇ 은 테 하나)
+ * @param {boolean} [o.flatTick] ㅊ·ㅎ 꼭지를 세로획 대신 짧은 가로획으로 (기본 false)
  */
-export function sealGlyph(ch, { style = 'plain', stroke = 0.07, folds = 3 } = {}) {
+export function sealGlyph(ch, { style = 'plain', stroke = 0.07, folds = 3, ringFolds = folds, flatTick = false } = {}) {
   if (typeof ch !== 'string') return null;
   const sx = clampStroke(typeof stroke === 'number' ? stroke : stroke?.x);
   const sy = clampStroke(typeof stroke === 'number' ? stroke : stroke?.y);
+  const folded = style === 'folded';
   const env = {
     sx, sy, px: sx * PITCH, py: sy * PITCH, gx: sx * GAP, gy: sy * GAP,
-    folded: style === 'folded', folds: style === 'folded' ? Math.max(0, Math.floor(folds)) : 0,
+    folded, folds: folded ? Math.max(0, Math.floor(folds)) : 0,
+    ringFolds: folded ? Math.max(0, Math.floor(ringFolds)) : 0,
+    flatTick: Boolean(flatTick),
     crowd: 1, // 최소 간격 합 / 쓸 수 있는 길이 의 최댓값
   };
   const d = decomposeSyllable(ch);
@@ -326,10 +331,11 @@ function single(name, { x0, y0, x1, y1 }, env, out) {
       break;
     }
     case 'ㅊ': {
-      // 꼭지는 가로획 위로 솟은 짧은 세로획 (훈민정음 해례본의 ㅊ·ㅎ 처럼)
-      const yb = y0 + clamp(h * 0.2, Math.min(py * 0.8, h / 4), h / 3);
+      // 꼭지는 가로획 위로 솟은 짧은 세로획 (훈민정음 해례본의 ㅊ·ㅎ 처럼). flatTick 이면 짧은 가로획
+      const yb = y0 + clamp(h * 0.2, Math.min(py * (env.flatTick ? 1 : 0.8), h / 4), h / 3);
       const yk = pi(yb + Math.min(py, (y1 - yb) / 3));
-      P.push([[x0, yb], [x1, yb]], [[xm, y0], [xm, yk]]);
+      if (env.flatTick) P.push([[x0, yb], [x1, yb]], flatTick(x0, x1, y0, h, env), [[xm, yb], [xm, yk]]);
+      else P.push([[x0, yb], [x1, yb]], [[xm, y0], [xm, yk]]);
       legs(yk);
       break;
     }
@@ -355,10 +361,10 @@ function single(name, { x0, y0, x1, y1 }, env, out) {
       break;
     }
     case 'ㅎ': {
-      const yb = y0 + clamp(h * 0.2, Math.min(py * 0.8, h / 4), h / 3);
+      const yb = y0 + clamp(h * 0.2, Math.min(py * (env.flatTick ? 1 : 0.8), h / 4), h / 3);
       const yo = yb + clamp((y1 - yb) * 0.24, Math.min(py, (y1 - yb) / 3), (y1 - yb) / 2);
       const ins = Math.min(w * 0.1, env.px * 0.6);
-      P.push([[xm, y0], [xm, yb]], [[x0, yb], [x1, yb]]);
+      P.push(env.flatTick ? flatTick(x0, x1, y0, h, env) : [[xm, y0], [xm, yb]], [[x0, yb], [x1, yb]]);
       rings(x0 + ins, yo, x1 - ins, y1, env, out);
       break;
     }
@@ -367,13 +373,23 @@ function single(name, { x0, y0, x1, y1 }, env, out) {
   }
 }
 
-/** ㅇ: 둥근 사각. 구첩은 안쪽에 겹 테를 더한다 */
+/**
+ * ㅊ·ㅎ 꼭지를 짧은 가로획으로 (flatTick): 가운데에 폭의 절반까지. 납작한 칸(가로로 넓은 성)에서
+ * 아래 가로획과 겹줄처럼 보이지 않게 칸 높이 h 의 0.6 배를 넘지 않고, 획 사이 간격보다는 길게
+ */
+function flatTick(x0, x1, y, h, env) {
+  const xm = (x0 + x1) / 2;
+  const half = Math.min((x1 - x0) / 2, Math.max(env.px / 2, Math.min((x1 - x0) * 0.25, h * 0.3)));
+  return [[xm - half, y], [xm + half, y]];
+}
+
+/** ㅇ: 둥근 사각. 구첩은 안쪽에 겹 테를 더한다 (ringFolds 겹까지) */
 function rings(x0, y0, x1, y1, env, out) {
   const w = x1 - x0;
   const h = y1 - y0;
   let k = 1;
   let m = 0;
-  for (let n = env.folds + 1; n >= 2; n--) {
+  for (let n = env.ringFolds + 1; n >= 2; n--) {
     m = Math.min(FOLD_MAX, Math.min(w / env.sx, h / env.sy) / (2 * n - 1));
     if (m >= FOLD_MIN) { k = n; break; }
   }

@@ -3,7 +3,7 @@
 // 입출력은 모두 직렬화할 수 있는 값(문자열·숫자·base64)이다.
 import { SIGNATURE_STYLES } from '../js/signature-styles.js';
 import { renderSignature, transformText } from '../js/signature-gen.js';
-import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES, SEAL_CENTERS, SEAL_CENTER_FONT, SEAL_CENTER_TEXT } from '../js/stamp-gen.js';
+import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES, SEAL_CENTERS, SEAL_CENTER_TEXT, stampFont, sealCenterFonts } from '../js/stamp-gen.js';
 import { STAMP_FONTS, signatureFont, loadFont } from '../js/fonts.js';
 import { finalize } from '../js/exporter.js';
 import { loadImageFile, PhotoSignature } from '../js/photo-import.js';
@@ -135,13 +135,13 @@ function stampSpecs(o) {
   const dateLabel = o.dateLabel ?? '';
   const date = dotDate(o.date);
   const specs = shapes.map((shape) => {
-    // 사이트의 '추천 조합'과 같게 모양마다 글꼴을 돌려 쓴다
-    const font = chosen ?? fonts[STAMP_SHAPES.indexOf(shape) % fonts.length];
+    // 사이트와 같다: 모양이 정한 글꼴(인감체)은 글꼴 선택과 상관없이 쓰고, 그 밖은 고른 글꼴 또는 '추천 조합'
+    const font = stampFont(shape, fonts, chosen);
     return {
       id: shape.id,
       label: shape.label,
       font,
-      fontLabel: shape.fontLabel, // 인장체처럼 웹 글꼴을 쓰지 않는 모양은 글꼴 이름 대신 이 이름을 보여 준다
+      fontLabel: shape.fontLabel, // 인장체·인감체처럼 글꼴 선택을 따르지 않는 모양은 글꼴 이름 대신 이 이름을 보여 준다
       render: (mult) => renderStamp({
         lang, chars: list, baseChars, text: name, shape, font, dateLabel, mult,
         ink: o.ink, order: o.order ?? 'horizontal', texture: Boolean(o.texture), bleed: Boolean(o.bleed),
@@ -151,7 +151,8 @@ function stampSpecs(o) {
   });
   // 사이트(app.js stampSpecs)와 같은 글자를 미리 받는다: 둘레글자 '인', 가운뎃점, 업무용 도장 기본 문구, 직인 가운데 한자
   const text = `${list.join('')}${name}${name.toUpperCase()}인★·0123456789.${dateLabel || '확인결재접수APPROVEDRECEIVEDCHECKED'}${SEAL_CENTER_TEXT}`;
-  const extraFonts = lang === 'ko' && shapes.some((sh) => sh.sealCenter || sh.special === 'ring' || sh.special === 'ring-star') ? [SEAL_CENTER_FONT] : [];
+  // 가운데 한자는 모양마다 정한 본명조(기본 900, 인감체 직인 500)로 그린다
+  const extraFonts = lang === 'ko' ? sealCenterFonts(shapes) : [];
   return { name, lang, specs, text, extraFonts };
 }
 

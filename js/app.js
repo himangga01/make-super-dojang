@@ -2,7 +2,7 @@ import { STAMP_FONTS, loadFonts, whenFontLoaded, signatureFont, ensureFontCss } 
 import { SIGNATURE_STYLES } from './signature-styles.js';
 import { SignaturePad } from './signature-pad.js';
 import { renderSignature, transformText } from './signature-gen.js';
-import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES, SEAL_CENTERS, SEAL_CENTER_FONT, SEAL_CENTER_TEXT } from './stamp-gen.js';
+import { renderStamp, STAMP_SHAPES, STAMP_CATEGORIES, SEAL_CENTERS, SEAL_CENTER_TEXT, stampFont, usesSealCenter, sealCenterFont, sealCenterFonts } from './stamp-gen.js';
 import { finalize, toPngBlob, downloadBlob, canCopyImage, copyBlob } from './exporter.js';
 import { PhotoSignature, loadImageFile } from './photo-import.js';
 import { DocComposer } from './doc-composer.js';
@@ -257,10 +257,9 @@ $('#stamp-rotation').addEventListener('input', (e) => { $('#stamp-rotation-out')
 for (const id of ['#stamp-font', '#stamp-in', '#stamp-date-label']) $(id).addEventListener('change', () => generate('stamp'));
 // 둘레글자 도장 가운데 글자 선택지 (목록은 stamp-gen.js 한 곳에서 관리)
 $('#stamp-seal-center').innerHTML = SEAL_CENTERS.map((c) => `<option value="${c.id}">${c.label}</option>`).join('');
-// 가운데 글자 선택지를 쓰는 모양: 한자(代表理事·印)를 고른 글꼴과 상관없이 본명조로 그린다.
-// 추가 둘레글자는 sealCenter 표시로 알리고, 표시가 없는 기존 둘레글자 원·별 직인은 special 로 본다
+// 가운데 글자 선택지를 쓰는 모양(usesSealCenter): 한자(代表理事·印)를 고른 글꼴과 상관없이
+// 모양이 정한 가운데 글꼴(sealCenterFont: 기본 본명조 900, 인감체 직인은 본명조 500)로 그린다
 const SHAPE_BY_ID = new Map(STAMP_SHAPES.map((sh) => [sh.id, sh]));
-const usesSealCenter = (sh) => Boolean(sh && (sh.sealCenter || sh.special === 'ring' || sh.special === 'ring-star'));
 for (const id of ['#stamp-order', '#stamp-texture', '#stamp-bleed', '#stamp-date', '#stamp-seal-center']) $(id).addEventListener('change', () => rerenderCards('stamp'));
 $('#stamp-date').value = isoDate(new Date());
 
@@ -330,10 +329,10 @@ async function generate(target, { focusResults = false } = {}) {
   const results = await loadFonts(fonts, text);
   container.classList.remove('loading');
   if (token !== s.token) return; // 그사이 입력이 바뀌었다
-  const okByFamily = new Map(fonts.map((f, i) => [f.family, results[i]]));
+  const okByFont = new Map(fonts.map((f, i) => [fontKey(f), results[i]]));
 
   const prevId = s.selected?.id;
-  const items = specs.map((spec) => ({ ...spec, kind: KIND_BY_TARGET[target], name, fontOk: okByFamily.get(spec.font.family) }));
+  const items = specs.map((spec) => ({ ...spec, kind: KIND_BY_TARGET[target], name, fontOk: okByFont.get(fontKey(spec.font)) }));
   setResults(target, items);
   selectItem(target, items.find((it) => it.id === prevId) ?? items[0] ?? null);
   // 결과 제목으로 초점을 옮기면 제목이 읽히므로 따로 알리지 않는다 (두 번 읽히지 않게)
@@ -341,13 +340,17 @@ async function generate(target, { focusResults = false } = {}) {
   else announce(`${target === 'sign' ? '서명' : '도장'} 후보 ${items.length}가지를 만들었어요.`);
 
   // 시간 안에 못 받은 글꼴은 도착하는 대로 해당 카드를 다시 그린다
-  for (const font of fonts.filter((f) => !okByFamily.get(f.family))) {
+  for (const font of fonts.filter((f) => !okByFont.get(fontKey(f)))) {
     whenFontLoaded(font, text).then((ok) => {
       if (!ok || token !== s.token) return;
       // 가운데 한자 글꼴이 늦게 오면 가운데 글자를 쓰는 둘레글자 카드도 다시 그린다
-      const usesFont = (x) => x.font.family === font.family || (target === 'stamp' && font.family === SEAL_CENTER_FONT.family && usesSealCenter(SHAPE_BY_ID.get(x.id)));
+      const isFont = (f) => fontKey(f) === fontKey(font);
+      const usesFont = (x) => {
+        const sh = target === 'stamp' ? SHAPE_BY_ID.get(x.id) : null;
+        return isFont(x.font) || (usesSealCenter(sh) && isFont(sealCenterFont(sh)));
+      };
       for (const it of s.items.filter(usesFont)) {
-        if (it.font.family === font.family) {
+        if (isFont(it.font)) {
           it.fontOk = true;
           it.card?.querySelector('.card-warn')?.remove();
         }
@@ -387,26 +390,31 @@ function stampSpecs(name, lang) {
   const dateLabel = $('#stamp-date-label').value;
 
   const specs = shapes.map((shape) => {
-    // 추천 조합: 모양마다 글꼴을 돌려 가며 쓴다 (분류를 바꿔도 같은 모양은 같은 글꼴)
-    const font = chosen ?? fonts[STAMP_SHAPES.indexOf(shape) % fonts.length];
+    // 모양이 정한 글꼴(인감체) > 고른 글꼴 > 추천 조합(모양마다 돌려 쓰기)
+    const font = stampFont(shape, fonts, chosen);
     return {
       id: shape.id,
       font,
       label: shape.label,
-      sub: shape.fontLabel ?? font.label, // 인장체처럼 웹 글꼴을 쓰지 않는 모양은 자기 이름을 단다
+      sub: shape.fontLabel ?? font.label, // 인장체·인감체처럼 글꼴 선택을 따르지 않는 모양은 자기 이름을 단다
       render: (mult) => renderStamp({ lang, chars: list, baseChars, text: name, shape, font, dateLabel, mult, ...opts('stamp') }),
     };
   });
   // 둘레글자 가운데 '인', 가운뎃점, 업무용 도장의 기본 문구까지 미리 받는다
   const text = `${list.join('')}${name}${name.toUpperCase()}인★·0123456789.${dateLabel || '확인결재접수APPROVEDRECEIVEDCHECKED'}${SEAL_CENTER_TEXT}`;
-  // 둘레글자 가운데 한자(代表理事)는 고른 글꼴과 상관없이 본명조로 그리므로 함께 받는다
-  const extra = lang === 'ko' && shapes.some(usesSealCenter) ? [SEAL_CENTER_FONT] : [];
+  // 둘레글자 가운데 한자(代表理事)는 고른 글꼴과 상관없이 모양마다 정한 본명조로 그리므로 함께 받는다
+  const extra = lang === 'ko' ? sealCenterFonts(shapes) : [];
   return { specs, fonts: uniqueFonts([...specs.map((x) => x.font), ...extra]), text };
+}
+
+// 같은 글꼴의 다른 굵기(본명조 900·500)는 따로 받아야 하므로 글꼴과 굵기로 구분한다
+function fontKey(f) {
+  return `${f.family}|${f.weight}`;
 }
 
 function uniqueFonts(list) {
   const seen = new Map();
-  for (const f of list) seen.set(f.family, f);
+  for (const f of list) seen.set(fontKey(f), f);
   return [...seen.values()];
 }
 

@@ -14,9 +14,9 @@ const close = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
 // ───────────── 모양 목록 ─────────────
 
 test('둘레글자 추가 12종: id·special 이 겹치지 않고, 분류는 ring, 이름표는 8자 이하', () => {
-  assert.equal(RING_EXTRA_SHAPES.length, 12);
+  assert.equal(RING_EXTRA_SHAPES.length, 20); // 조사 기반 12 + 인장체 직인 6 + 인감체 직인 2
   const ids = RING_EXTRA_SHAPES.map((s) => s.id);
-  assert.equal(new Set(ids).size, 12);
+  assert.equal(new Set(ids).size, ids.length);
   assert.equal(new Set(STAMP_SHAPES.map((s) => s.id)).size, STAMP_SHAPES.length, '전체 목록에서 id 중복');
   const oldSpecials = new Set(STAMP_SHAPES.filter((s) => !RING_EXTRA_SHAPES.includes(s)).map((s) => s.special).filter(Boolean));
   for (const s of RING_EXTRA_SHAPES) {
@@ -27,8 +27,8 @@ test('둘레글자 추가 12종: id·special 이 겹치지 않고, 분류는 rin
     assert.ok(!oldSpecials.has(s.special), `${s.id}: 기존 special 과 겹침`);
     assert.ok(STAMP_SHAPES.includes(s), `${s.id}: STAMP_SHAPES 에 없음`);
   }
-  assert.equal(new Set(RING_EXTRA_SHAPES.map((s) => s.special)).size, 12);
-  assert.equal(new Set(RING_EXTRA_SHAPES.map((s) => s.label)).size, 12, '이름표 중복');
+  assert.equal(new Set(RING_EXTRA_SHAPES.map((s) => s.special)).size, RING_EXTRA_SHAPES.length);
+  assert.equal(new Set(RING_EXTRA_SHAPES.map((s) => s.label)).size, RING_EXTRA_SHAPES.length, '이름표 중복');
   // 둘레글자 분류는 기존 3종이 앞에 온다
   assert.deepEqual(STAMP_SHAPES.filter((s) => s.cat === 'ring').map((s) => s.id).slice(0, 3), ['ring', 'ring-star', 'ring-square']);
   // 가운데 글자 선택지를 쓰는 모양은 sealCenter 표시가 있다 (app.js 가 한자 글꼴을 미리 받는다). 공장 별은 늘 큰 별
@@ -354,7 +354,8 @@ function render(shape, lang, name, extra = {}) {
 
 test('12종 모두: 이름·인·가운데 선택지·읽는 순서·배율마다 캔버스 안에 겹치지 않게 그린다', () => {
   let n = 0;
-  for (const shape of RING_EXTRA_SHAPES) {
+  // 둘레 글자를 인장체 획으로 긋는 직인은 글자(fillText)가 아니라 선이라 reference-seal-ring.test.js 가 따로 본다
+  for (const shape of RING_EXTRA_SHAPES.filter((s) => s.fontLabel !== '인장체')) {
     for (const [lang, name] of NAMES) {
       for (const sealCenter of SEAL_CENTERS.map((c) => c.id)) {
         for (const order of ['horizontal', 'vertical']) {

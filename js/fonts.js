@@ -75,6 +75,16 @@ export const STAMP_FONTS = {
   ],
 };
 
+/**
+ * 특정 도장 모양만 쓰는 글꼴. 그 모양은 글꼴 선택(#stamp-font)과 상관없이 늘 이 글꼴로 그린다 (shape.font, shape.centerFont).
+ * stem 은 획 굵기(글꼴 크기 대비): 글자를 칸에 늘려 그린 뒤 획 굵기를 맞출 때 쓴다 (테 굵기, 지나치게 굵어진 글자 깎기).
+ * 인감체 글자: 참고한 유료 인감 글꼴과 가장 비슷한 무료 글꼴 (작고 둥근 ㅇ, 칸 높이를 다 쓰는 ㅣ, 끝이 둥근 손글씨 획)
+ */
+export const INGAM_FONT = { family: 'Hi Melody', weight: 400, label: '하이멜로디', stem: 0.0625 };
+/** 인감체 직인 가운데 한자(代表理事·印). 한자가 든 무료 웹 글꼴은 본명조뿐이라, 기본 직인(900)보다 가는 굵기를 쓴다 */
+export const INGAM_CENTER_FONT = { family: 'Noto Serif KR', weight: 500, label: '본명조 보통' };
+export const EXTRA_FONTS = [INGAM_FONT, INGAM_CENTER_FONT];
+
 export function signatureFont(family) {
   const f = SIGNATURE_FONTS[family];
   if (!f) throw new Error(`알 수 없는 서명 글꼴: ${family}`);
