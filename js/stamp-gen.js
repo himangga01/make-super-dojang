@@ -1,4 +1,4 @@
-// 이름 → 도장 이미지 (97종)
+// 이름 → 도장 이미지 (105종)
 import { fontString } from './fonts.js';
 import { gridFor, cellOrder, fillScale, largestRectInPolygon, polygonPoints, rectInEllipse } from './core/geometry.js';
 import { createRandom, hashString } from './core/random.js';
@@ -6,6 +6,8 @@ import { sealGlyph } from './core/seal-glyph.js';
 // 확장 모양: 둘레글자·인장체 추가 디자인은 각자 파일에 둔다 (아래 export 한 그리기 도구를 가져다 쓴다)
 import { RING_EXTRA_SHAPES, RING_EXTRA_DRAW } from './stamp-ring-extra.js';
 import { SEAL_EXTRA_SHAPES, SEAL_EXTRA_DRAW } from './stamp-seal-extra.js';
+import { RING_SHAPE_SHAPES, RING_SHAPE_DRAW } from './stamp-ring-shape.js';
+import { RING_DECO_SHAPES, RING_DECO_DRAW } from './stamp-ring-deco.js';
 
 const BASE = 400; // mult = 1 일 때 도장 기준 크기(px)
 const MEASURE_PX = 200;
@@ -91,6 +93,9 @@ export const STAMP_SHAPES = [
   { id: 'seal-folded-circle', label: '구첩 원', cat: 'seal', special: 'seal', outline: 'ellipse', seal: 'folded', fontLabel: '인장체' },
   ...RING_EXTRA_SHAPES,
   ...SEAL_EXTRA_SHAPES,
+  // 둘레글자 추가(테 모양 4 · 꾸밈 4). 목록 끝에 붙여 앞 모양들의 추천 글꼴 순번이 바뀌지 않게 한다
+  ...RING_SHAPE_SHAPES,
+  ...RING_DECO_SHAPES,
 ];
 
 /**
@@ -132,6 +137,8 @@ const SPECIAL_DRAW = {
   seal: drawSeal,
   ...RING_EXTRA_DRAW,
   ...SEAL_EXTRA_DRAW,
+  ...RING_SHAPE_DRAW,
+  ...RING_DECO_DRAW,
 };
 
 // ───────────── 테두리 있는 기본 도장 ─────────────

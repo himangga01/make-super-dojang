@@ -104,28 +104,32 @@ test('ringCellMaxW: 그 폭이면 안쪽 모서리가 이웃 칸과의 경계(�
 
 // ───────────── 둥근 인장체 ─────────────
 
-test('ROUND_SEAL: 단계가 오를수록 획 간격(k)이 촘촘하고, 긋는 굵기는 간격용 굵기보다 가늘다', () => {
+test('ROUND_SEAL: 단계마다 참고 꼴(ref1 · ref2 · ref3), 긋는 굵기는 단계와 상관없이 거의 같고 간격용 굵기보다 가늘다', () => {
   const { plain, fold3, folded } = ROUND_SEAL.levels;
-  assert.ok(plain.k > fold3.k && fold3.k > folded.k);
+  assert.deepEqual([plain.variant, fold3.variant, folded.variant], ['ref1', 'ref2', 'ref3']);
   assert.ok(ROUND_SEAL.draw > 0 && ROUND_SEAL.draw < 1);
-  assert.equal(plain.style, 'plain');
-  assert.equal(fold3.style, 'folded');
-  assert.equal(fold3.folds, 1);
-  assert.equal(folded.style, 'folded');
+  // 참고 도장은 세 단계 모두 글자 획이 도장의 약 2.9% (도장 77px 에서 2.1~2.3px)
+  const drawn = [plain, fold3, folded].map((L) => L.k * ROUND_SEAL.draw);
+  assert.ok(Math.max(...drawn) / Math.min(...drawn) < 1.05, drawn.join());
+  assert.ok(plain.k >= fold3.k && fold3.k >= folded.k, '획이 많은 단계일수록 간격용 굵기는 같거나 작다');
+  for (const L of [plain, fold3, folded]) assert.ok(L.ring > 0 && L.ring < 0.2, `둘레 글자 k ${L.ring}`);
+  assert.ok(ROUND_SEAL.clear.square >= 2 && ROUND_SEAL.clear.circle >= ROUND_SEAL.clear.square, '테와 글자 사이 흰 틈은 획 둘 넘게');
 });
 
-test('roundGlyphInfo: 둥근 꼴의 삼첩·구첩 ㅇ 은 알약 하나, 기본형은 기본 인장체와 같다', () => {
+test('roundGlyphInfo: 단계의 참고 꼴로 긋고, ㅇ 은 알약 하나 (ㅎ 안의 ㅇ 포함)', () => {
   const sw = 6;
-  for (const level of ['fold3', 'folded']) {
+  for (const level of ['plain', 'fold3', 'folded']) {
     // ㅇ(ㅎ 안의 ㅇ 포함) 하나에 테 하나: 이 1, 응 2, 홍 2
     for (const [ch, n] of [['이', 1], ['응', 2], ['홍', 2]]) {
       const g = roundGlyphInfo(ch, level, sw, 120, 120);
       assert.equal(g.shapes.length, n, `${level} ${ch}: ㅇ 테 ${g.shapes.length}`);
     }
+    const L = ROUND_SEAL.levels[level];
+    const a = roundGlyphInfo('름', level, sw, 120, 100);
+    const b = sealGlyph('름', { style: L.style, folds: L.folds, ringFolds: L.ringFolds, flatTick: true, variant: L.variant, stroke: { x: sw / 120, y: sw / 100 } });
+    assert.deepEqual(a, b, level);
+    assert.notDeepEqual(a, sealGlyph('름', { stroke: { x: sw / 120, y: sw / 100 } }), `${level}: 기본 인장체와 다르다`);
   }
-  const a = roundGlyphInfo('름', 'plain', sw, 120, 100);
-  const b = sealGlyph('름', { stroke: { x: sw / 120, y: sw / 100 } });
-  assert.deepEqual(a, b);
   // 인장체가 없는 글자는 null (그리는 쪽이 글꼴로 그린다), 영문 소문자는 대문자로
   assert.equal(roundGlyphInfo('·', 'plain', sw, 100, 100), null);
   assert.deepEqual(roundGlyphInfo('j', 'plain', sw, 100, 100), roundGlyphInfo('J', 'plain', sw, 100, 100));
@@ -396,6 +400,79 @@ test('둥근 인장체 6종 · 삼첩 원: 글자 획이 테 안쪽에 들어간
               const d = round ? Math.hypot(x - c, y - cv.height / 2) : Math.max(Math.abs(x - c), Math.abs(y - cv.height / 2));
               assert.ok(d + g.lw / 2 <= half + 0.01, `${label}: 획이 테에 닿음 (${(d + g.lw / 2).toFixed(1)} > ${half.toFixed(1)})`);
             }
+          }
+        }
+      }
+    }
+  }
+});
+
+// ───────────── 테 · 둘레와 글자 사이 흰 틈 ─────────────
+// 글자 획 바깥 가장자리에서 테 안쪽 가장자리까지 흰 틈이 글자 긋는 굵기의 두 배 넘게 (이름 길이 · 배율 · 읽는 순서마다).
+// 원은 격자를 원 안에 펴 넣어 칸 모서리가 테 쪽으로 밀려나므로 모서리(대각선 ±20°) 쪽을 따로 본다
+
+const ROUND_IDS = SEAL_IDS.filter((id) => id.startsWith('seal-round-'));
+const GAP_NAMES = [...NAMES, ['ko', '김'], ['ko', '김수'], ['ko', '가나다라마바사아자'], ['ko', '홍길동김지혜인']];
+
+test('둥근 인장체 6종: 글자와 테 안쪽 사이 흰 틈이 글자 획 두 배 넘게 (원은 모서리 쪽도 따로)', () => {
+  for (const id of ROUND_IDS) {
+    const round = id.endsWith('circle');
+    let cornerChecked = 0;
+    for (const [lang, name] of GAP_NAMES) {
+      for (const order of ['horizontal', 'vertical']) {
+        for (const mult of [1, 2.5]) {
+          for (const addIn of lang === 'ko' ? [false, true] : [false]) {
+            const label = `${id} ${name} ${order} x${mult}${addIn ? ' +인' : ''}`;
+            const cv = render(id, lang, name, { order, mult, addIn });
+            const c = [cv.width / 2, cv.height / 2];
+            const [frame, ...glyphs] = cv.ctx.marks.filter((m) => m.type === 'stroke');
+            const inner = 200 * mult - frame.lw; // 테 안쪽 가장자리 (S/2 - 테 굵기)
+            let white = Infinity;
+            let cornerWhite = Infinity;
+            for (const g of glyphs) {
+              for (const s of g.path) {
+                const dx = s.p[0] - c[0];
+                const dy = s.p[1] - c[1];
+                const d = round ? Math.hypot(dx, dy) : Math.max(Math.abs(dx), Math.abs(dy));
+                const w = (inner - (d + g.lw / 2)) / g.lw;
+                white = Math.min(white, w);
+                const a = ((Math.atan2(dy, dx) * 180) / Math.PI + 360) % 90; // 대각선은 45°
+                if (round && Math.abs(a - 45) <= 20 && d > inner * 0.6) cornerWhite = Math.min(cornerWhite, w);
+              }
+            }
+            assert.ok(white >= 2, `${label}: 흰 틈 ${white.toFixed(2)} 획`);
+            if (round && cornerWhite < Infinity) {
+              cornerChecked++;
+              assert.ok(cornerWhite >= 2, `${label}: 모서리 흰 틈 ${cornerWhite.toFixed(2)} 획`);
+            }
+          }
+        }
+      }
+    }
+    if (round) assert.ok(cornerChecked > 50, `${id}: 모서리 쪽에 글자 획이 있는 경우 ${cornerChecked}`);
+  }
+});
+
+test('인장체 직인 6종: 둘레 글자와 바깥 테 · 가운데 원 사이 흰 틈이 글자 획 두 배 넘게', () => {
+  for (const id of RING_IDS) {
+    for (const [lang, name] of GAP_NAMES) {
+      for (const mult of [1, 2.5]) {
+        for (const addIn of lang === 'ko' ? [false, true] : [false]) {
+          const label = `${id} ${name} x${mult}${addIn ? ' +인' : ''}`;
+          const cv = render(id, lang, name, { mult, addIn });
+          const c = [cv.width / 2, cv.height / 2];
+          const strokes = cv.ctx.marks.filter((m) => m.type === 'stroke');
+          const circles = strokes.filter((m) => m.path.length === 1 && m.path[0].r != null).sort((a, b) => b.path[0].r - a.path[0].r);
+          const [rim, center] = circles.map((m) => ({ r: m.path[0].r, lw: m.lw }));
+          const hi = rim.r - rim.lw / 2;
+          const lo = center.r + center.lw / 2;
+          for (const m of strokes) {
+            if (m.key === '1,0,0,1,0,0' || m.path.some((s) => s.r != null)) continue;
+            const d = m.path.map((s) => Math.hypot(s.p[0] - c[0], s.p[1] - c[1]));
+            const outer = (hi - (Math.max(...d) + m.lw / 2)) / m.lw;
+            const inside = (Math.min(...d) - m.lw / 2 - lo) / m.lw;
+            assert.ok(outer >= 2, `${label}: 바깥 테와 ${outer.toFixed(2)} 획`);
+            assert.ok(inside >= 2, `${label}: 가운데 원과 ${inside.toFixed(2)} 획`);
           }
         }
       }

@@ -78,7 +78,8 @@ function glyphOf(ch, style, folds, sw, iw, ih) {
  * 글자 칸과 획 굵기를 정한다 (drawSeal 과 같은 방식: 칸 크기 × k, 획이 아주 많은 음절은 fit 만큼 가늘게).
  * cfg.area(lw, S) → { w, h } 글자 영역, cfg.gap 글자 사이 틈(lw 배수), cfg.draw 그리는 굵기 배율,
  * cfg.k 칸 크기에 곱할 획 굵기 비율, cfg.squeeze 원·타원에서 눌리는 만큼 칸을 작게 보는 값, cfg.min·max 획 굵기 범위(S 배수),
- * cfg.style·folds 글자 모양(seal-glyph), cfg.content(n) 한글 격자를 직접 정할 때,
+ * cfg.style·folds 글자 모양(seal-glyph), cfg.info(ch, sw, iw, ih) 획 간격 여유(fit)를 잴 글자 (기본은 style·folds 인장체),
+ * cfg.content(n) 한글 격자를 직접 정할 때,
  * cfg.cells(lw, S) 를 주면 칸 배치를 직접 정한다 ({ cells, size })
  */
 function setup(o, cfg) {
@@ -106,8 +107,9 @@ function setup(o, cfg) {
   let lw = S * 0.03;
   for (let i = 0; i < 2; i++) lw = clamp(plan(lw).size * cfg.k * (cfg.squeeze ?? 1), S * (cfg.min ?? 0.016), S * (cfg.max ?? 0.05));
   const base = lw;
+  const info = cfg.info ?? ((ch, sw, iw, ih) => glyphOf(ch, style, cfg.folds, sw, iw, ih));
   for (let i = 0; i < 3; i++) {
-    const fit = Math.min(...plan(lw).cells.map((c) => glyphOf(c.ch, style, cfg.folds, lw, c.w - lw * draw, c.h - lw * draw)?.fit ?? 1));
+    const fit = Math.min(...plan(lw).cells.map((c) => info(c.ch, lw, c.w - lw * draw, c.h - lw * draw)?.fit ?? 1));
     if (fit > 0.995 || lw <= base * 0.6) break;
     lw = Math.max(base * 0.6, lw * fit * 0.97);
   }
@@ -818,22 +820,28 @@ function drawFold3Circle(o) {
 // 둘레글자 인장체 직인(stamp-ring-extra.js)도 이 값과 drawRoundGlyph 로 둘레 글자를 긋는다
 
 /**
- * 단계: plain 기본형, fold3 한 번 되접기(삼첩), folded 구첩. k 는 칸 짧은 변에 곱할 간격용 획 굵기.
+ * 단계: plain 기본형(참고 꼴 ref1), fold3 삼첩 자리(ref2: 칸을 더 채운다), folded 구첩 자리(ref3: 겹 획 · 좁고 긴 초성).
+ * 글자 모양은 core/seal-glyph.js 의 참고 꼴(variant)이 정한다. k 는 칸 짧은 변에 곱할 간격용 획 굵기, ring 은 둘레 글자에 쓸 k.
+ * 참고 도장(도장 77px)을 재 보면 글자 획이 단계와 상관없이 도장의 약 2.9%(글자 칸의 약 7%)라, 단계마다 긋는 굵기
+ * (k × draw)를 거의 같게 두고, 획이 많은 단계는 간격용 굵기만 조금 줄인다. 둘레 글자 획은 참고 직인처럼 더 가늘다.
  * 둥근 꼴에서는 ㅇ 을 겹 테 없이 알약 하나로 두고(ringFolds 0: 겹 테가 과녁처럼 보여 알약꼴과 어울리지 않는다),
  * ㅊ·ㅎ 꼭지는 짧은 가로획으로 긋는다(flatTick)
  */
 export const ROUND_SEAL = {
   flatTick: true,
-  draw: 0.72, // 긋는 굵기 / 간격용 굵기
+  draw: 0.85, // 긋는 굵기 / 간격용 굵기
   corner: 1.1, // 꺾인 곳 반지름 (간격용 굵기 배수)
-  gap: 2.2, // 글자 사이 (간격용 굵기 배수)
+  gap: 1.6, // 글자 사이 (간격용 굵기 배수). 참고 도장은 글자끼리 맞물리듯 촘촘하다
   frame: 0.022, // 테 굵기 (S 배수)
   pad: { square: 0.06, circle: 0.05 }, // 테 안쪽과 글자 영역 사이 (S 배수)
-  warp: 0.35, // 원: 격자를 원 안에 펴 넣는 정도 (discWarp, 인장체 원의 SEAL_WARP 와 같은 값)
+  // 테 안쪽과 글자 사이 흰 틈의 최소 (긋는 굵기 배수). 글자가 적어 획이 굵어지면 pad 보다 넓힌다.
+  // 원은 격자를 펴 넣을 때 칸 모서리의 획 끝이 테 쪽으로 획 0.2개쯤 더 밀려나서 조금 더 띄운다
+  clear: { square: 2.2, circle: 2.45 },
+  warp: 0.45, // 원: 격자를 원 안에 펴 넣는 정도 (discWarp). 참고 원 도장은 글자 덩이가 원을 더 채워 인장체 원(SEAL_WARP 0.35)보다 조금 세게
   levels: {
-    plain: { style: 'plain', k: 0.09 },
-    fold3: { style: 'folded', folds: 1, ringFolds: 0, k: 0.075 },
-    folded: { style: 'folded', folds: 3, ringFolds: 0, k: 0.06 },
+    plain: { style: 'plain', variant: 'ref1', k: 0.09, ring: 0.07 },
+    fold3: { style: 'plain', variant: 'ref2', ringFolds: 0, k: 0.09, ring: 0.095 },
+    folded: { style: 'plain', variant: 'ref3', ringFolds: 0, k: 0.089, ring: 0.105 },
   },
 };
 
@@ -841,7 +849,7 @@ export const ROUND_SEAL = {
 export function roundGlyphInfo(ch, level, sw, iw, ih) {
   const L = ROUND_SEAL.levels[level] ?? ROUND_SEAL.levels.plain;
   const stroke = { x: sw / Math.max(1e-3, iw), y: sw / Math.max(1e-3, ih) };
-  return sealGlyph(sealChar(ch), { style: L.style, folds: L.folds, ringFolds: L.ringFolds, flatTick: ROUND_SEAL.flatTick, stroke });
+  return sealGlyph(sealChar(ch), { style: L.style, folds: L.folds, ringFolds: L.ringFolds, flatTick: ROUND_SEAL.flatTick, variant: L.variant, stroke });
 }
 
 /**
@@ -877,6 +885,7 @@ function drawRoundSeal(o, { level, round }) {
   const R = ROUND_SEAL;
   const L = R.levels[level];
   const pad = round ? R.pad.circle : R.pad.square;
+  const clear = round ? R.clear.circle : R.clear.square;
   const st = setup(o, {
     k: L.k,
     style: L.style,
@@ -885,8 +894,10 @@ function drawRoundSeal(o, { level, round }) {
     gap: R.gap,
     squeeze: round ? 0.76 : 1,
     min: 0.01,
+    info: (ch, sw, iw, ih) => roundGlyphInfo(ch, level, sw, iw, ih),
+    // 테 안쪽과 글자 사이는 pad(S 배수)와 긋는 굵기의 clear 배 중 넓은 쪽 (원도 칸 모서리가 테 원 쪽에 오도록 펴 넣으므로 같은 식)
     area: (lw, S) => {
-      const side = S - 2 * S * (R.frame + pad);
+      const side = S - 2 * (S * R.frame + Math.max(S * pad, lw * R.draw * clear));
       return { w: side, h: side };
     },
   });

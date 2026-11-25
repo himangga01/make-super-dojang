@@ -121,9 +121,9 @@ test('서명 형태 20가지 이상, 글꼴이 모두 등록돼 있다', () => {
   assert.ok(STAMP_FONTS.ko.length >= 5 && STAMP_FONTS.en.length >= 4);
 });
 
-test('도장 모양 97가지, 분류가 모두 유효하다', async () => {
+test('도장 모양 105가지, 분류가 모두 유효하다', async () => {
   const { STAMP_SHAPES, STAMP_CATEGORIES } = await import('../js/stamp-gen.js');
-  assert.equal(STAMP_SHAPES.length, 97);
+  assert.equal(STAMP_SHAPES.length, 105);
   // 인장체: 처음 4종은 기본형·구첩, 웹 글꼴 대신 '인장체' 이름표
   const seal = STAMP_SHAPES.filter((s) => s.cat === 'seal');
   assert.deepEqual(seal.map((s) => s.id).slice(0, 4), ['seal-square', 'seal-circle', 'seal-folded-square', 'seal-folded-circle']);

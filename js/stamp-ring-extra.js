@@ -754,6 +754,7 @@ export const SEAL_RING = {
   dot: 0.042, // ● 반지름
   star: 0.055, // ★ 반지름
   sep: 0.011, // 되풀이 사이 점 반지름
+  clear: 2.2, // 바깥 테 안쪽 · 가운데 원 바깥쪽과 글자 사이 흰 틈의 최소 (글자 긋는 굵기 배수, 칸 모서리 기준)
 };
 
 /**
@@ -792,31 +793,62 @@ function drawSealScriptRing(o, { level, marker }) {
   const inner = Rc + innerW / 2;
   const edge = S / 2 - rim;
   const band = edge - inner;
-  const mid = inner + band / 2;
   const units = ringUnits(o.lang, o.chars, o.baseChars, o.text);
   const { step, markerW, angles } = sealRingSlots(units.length);
   const L = ROUND_SEAL.levels[level];
-  // 칸: 높이는 띠의 일정 비율, 폭은 이웃 칸과 부딪치지 않는 만큼. 글자가 많아 홀쭉해지면 높이도 줄인다
+  const ringK = L.ring ?? L.k;
+  // 칸: 높이는 띠의 일정 비율, 폭은 이웃 칸과 부딪치지 않는 만큼. 글자가 많아 홀쭉해지면 높이도 줄인다.
+  // 칸 바깥 모서리가 바깥 테에서, 칸 안쪽 변이 가운데 원에서 글자 긋는 굵기의 clear 배 넘게 떨어지도록 칸 높이와
+  // 놓는 반지름(mid)을 정한다 (바깥 모서리는 칸 가운데보다 멀어서 칸을 띠 가운데보다 조금 안쪽에 둔다).
+  // 흰 틈은 실제로 긋는 굵기(아래 fit 으로 가늘게 한 뒤)로 잰다: 처음 굵기로 재면 칸이 쓸데없이 작아진다
   let cellH = Math.min(S * C.cellH, band * C.band);
   let sw = S * 0.015;
   let cellW = cellH * C.aspect;
-  for (let i = 0; i < 3; i++) {
+  let mid = inner + band / 2;
+  let drawn = null; // 흰 틈을 잴 긋는 굵기 (앞 차례에서 fit 으로 정한 값)
+  const place = () => {
+    const d = (drawn ?? sw * ROUND_SEAL.draw) * C.clear;
+    const ri = inner + d;
+    const ro = edge - d;
+    const q = 1 + (cellW / cellH) ** 2 / 4;
+    const hMax = (-ri + Math.sqrt(ri * ri + q * Math.max(0, ro * ro - ri * ri))) / q; // (ri + H)² + (W/2)² = ro²
+    cellH = Math.min(cellH, hMax);
+    const lo = ri + cellH / 2;
+    const hi = Math.sqrt(Math.max(0, ro * ro - (cellW / 2) ** 2)) - cellH / 2;
+    mid = hi > lo ? (lo + hi) / 2 : lo;
+  };
+  const size = () => {
+    cellH = Math.min(S * C.cellH, band * C.band);
+    cellW = Math.min(cellW, cellH * C.aspect);
+    place();
     cellW = Math.min(cellH * C.aspect, ringCellMaxW(mid, cellH, step, sw * ROUND_SEAL.gap));
     if (cellW < cellH * 0.6) cellH = cellW / 0.6;
-    sw = Math.min(S * 0.03, Math.max(S * 0.006, Math.min(cellW, cellH) * L.k * C.stroke));
-  }
+    place();
+  };
   const widthOf = (c) => {
     const g = roundGlyphInfo(c, level, sw, cellW, cellH);
     return g && g.aspect < 1 ? Math.min(cellW, cellH * g.aspect * C.latin) : cellW;
   };
   // 획이 아주 많은 음절은 둘레 글자 전체 획을 가늘게 (최대 40%)
-  const base = sw;
-  for (let i = 0; i < 3; i++) {
-    const lw = sw * ROUND_SEAL.draw;
-    const fit = Math.min(1, ...units.filter((c) => c !== SEP).map((c) => roundGlyphInfo(c, level, sw, widthOf(c) - lw, cellH - lw)?.fit ?? 1));
-    if (fit > 0.995 || sw <= base * 0.6) break;
-    sw = Math.max(base * 0.6, sw * fit * 0.97);
+  const thin = () => {
+    const base = sw;
+    for (let i = 0; i < 3; i++) {
+      const lw = sw * ROUND_SEAL.draw;
+      const fit = Math.min(1, ...units.filter((c) => c !== SEP).map((c) => roundGlyphInfo(c, level, sw, widthOf(c) - lw, cellH - lw)?.fit ?? 1));
+      if (fit > 0.995 || sw <= base * 0.6) break;
+      sw = Math.max(base * 0.6, sw * fit * 0.97);
+    }
+  };
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < 4; i++) {
+      size();
+      sw = Math.min(S * 0.03, Math.max(S * 0.006, Math.min(cellW, cellH) * ringK * C.stroke));
+    }
+    thin();
+    drawn = sw * ROUND_SEAL.draw;
   }
+  // 마지막 굵기로 한 번 더 놓는다 (굵기는 그대로: 흰 틈이 clear 배를 넘게)
+  size();
   const opt = { lw: sw * ROUND_SEAL.draw, sw, level, font: o.font, corner: ROUND_SEAL.corner * sw };
   units.forEach((c, i) => {
     const a = -Math.PI / 2 + angles[i];
@@ -913,3 +945,4 @@ function drawIngamRing(o, marker) {
   });
   return canvas;
 }
+export { sheet, useFont, dot, drawRun, drawCenterBlock, sealCenterIn }; // 둘레글자 꾸밈(stamp-ring-deco.js)이 쓴다

@@ -30,10 +30,12 @@ test('인장체 추가 12종: id·분류·이름표·그리기 함수', () => {
 test('인장체 추가 12종: 전체 목록 끝에 붙고 기존 인장체 4종과 id 가 겹치지 않는다', () => {
   const seal = STAMP_SHAPES.filter((s) => s.cat === 'seal');
   assert.deepEqual(seal.map((s) => s.id).slice(0, 16), ['seal-square', 'seal-circle', 'seal-folded-square', 'seal-folded-circle', ...IDS]);
-  assert.deepEqual(STAMP_SHAPES.slice(-21).map((s) => s.id), SEAL_EXTRA_SHAPES.map((s) => s.id));
+  // 인장체 추가 21종은 목록에 순서대로 들어 있다 (뒤에 둘레글자 추가 모양이 더 붙는다)
+  const sealIds = new Set(SEAL_EXTRA_SHAPES.map((s) => s.id));
+  assert.deepEqual(STAMP_SHAPES.filter((s) => sealIds.has(s.id)).map((s) => s.id), SEAL_EXTRA_SHAPES.map((s) => s.id));
   assert.equal(new Set(STAMP_SHAPES.map((s) => s.id)).size, STAMP_SHAPES.length, '전체 id 중복');
   // 기존 모양의 special 을 가로채지 않는다
-  const old = new Set(STAMP_SHAPES.slice(0, -21).map((s) => s.special).filter(Boolean));
+  const old = new Set(STAMP_SHAPES.filter((s) => !sealIds.has(s.id)).map((s) => s.special).filter(Boolean));
   for (const s of SEAL_EXTRA_SHAPES) assert.ok(!old.has(s.special), s.special);
 });
 

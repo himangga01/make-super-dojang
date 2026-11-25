@@ -1,6 +1,6 @@
 // 헤드리스 Chrome 하나를 띄워 두고 mcp/render.js 의 함수를 부른다.
 // 페이지는 가짜 주소(https://dojang.render)로 열고 저장소 파일을 직접 돌려준다. 외부로는 Google Fonts 만 나간다.
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -11,6 +11,18 @@ const PAGE_URL = `${ORIGIN}/mcp/render.html`;
 const FONT_HOSTS = /^https:\/\/fonts\.(googleapis|gstatic)\.com\//;
 const SERVABLE = /^(js\/.+\.js|mcp\/render\.js)$/;
 const TYPES = { '.js': 'text/javascript; charset=utf-8', '.html': 'text/html; charset=utf-8' };
+
+// 사이트 코드가 바뀌면(새 모양·고친 그림) 열어 둔 페이지를 새로 읽는다. 서버를 다시 켜지 않아도 반영되게.
+// 버전 = js/·js/core/·mcp/render.js·index.html 의 가장 늦은 수정 시각. 부를 때마다 재지 않고 2초 동안 기억한다
+const VERSION_TTL_MS = 2000;
+async function codeVersion() {
+  const files = [join(ROOT, 'index.html'), join(ROOT, 'mcp', 'render.js')];
+  for (const dir of ['js', join('js', 'core')]) {
+    for (const f of await readdir(join(ROOT, dir)).catch(() => [])) if (f.endsWith('.js')) files.push(join(ROOT, dir, f));
+  }
+  const times = await Promise.all(files.map((f) => stat(f).then((st) => st.mtimeMs, () => 0)));
+  return Math.max(...times);
+}
 
 export class UserError extends Error {}
 export class BusyError extends Error {}
@@ -47,18 +59,18 @@ export class Renderer {
       ...(process.env.DOJANG_CHROME ? { executablePath: process.env.DOJANG_CHROME } : { channel: 'chrome' }),
     });
     const context = await browser.newContext({ locale: 'ko-KR', timezoneId: 'Asia/Seoul', deviceScaleFactor: 1 });
-    const html = await pageHtml();
     await context.route('**/*', async (route) => {
       const url = route.request().url();
       if (FONT_HOSTS.test(url)) return route.continue();
       if (!url.startsWith(`${ORIGIN}/`)) return route.abort('blockedbyclient');
       const path = decodeURIComponent(new URL(url).pathname).slice(1);
-      if (path === 'mcp/render.html') return route.fulfill({ status: 200, contentType: TYPES['.html'], body: html });
+      const noStore = { 'Cache-Control': 'no-store' };
+      if (path === 'mcp/render.html') return route.fulfill({ status: 200, contentType: TYPES['.html'], headers: noStore, body: await pageHtml() });
       const file = normalize(join(ROOT, path));
       const rel = relative(ROOT, file);
       if (!SERVABLE.test(rel.split('\\').join('/')) || rel.startsWith('..') || isAbsolute(rel)) return route.fulfill({ status: 404, body: '' });
       try {
-        return route.fulfill({ status: 200, contentType: TYPES[extname(file)], body: await readFile(file) });
+        return route.fulfill({ status: 200, contentType: TYPES[extname(file)], headers: noStore, body: await readFile(file) });
       } catch {
         return route.fulfill({ status: 404, body: '' });
       }
@@ -74,9 +86,24 @@ export class Renderer {
   async #newPage() {
     const page = await this.context.newPage();
     page.on('pageerror', (err) => console.error('[render] page error:', err.message));
+    await this.#load(page);
+    return page;
+  }
+
+  async #load(page) {
+    const version = await this.#version();
     await page.goto(PAGE_URL);
     await page.waitForFunction(() => window.dojangReady === true, null, { timeout: 30_000 });
-    return page;
+    page.dojangVersion = version;
+  }
+
+  async #version() {
+    const now = Date.now();
+    if (!this.versionAt || now - this.versionAt > VERSION_TTL_MS) {
+      this.versionValue = await codeVersion();
+      this.versionAt = now;
+    }
+    return this.versionValue;
   }
 
   #reset() {
@@ -113,6 +140,7 @@ export class Renderer {
     let page = await this.#acquire();
     let timer;
     try {
+      if (page.dojangVersion !== (await this.#version())) await this.#load(page); // 코드가 바뀌었으면 새로 읽는다
       const result = await Promise.race([
         page.evaluate(([f, a]) => window.dojang.call(f, a), [fn, args]),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), this.timeoutMs); }),
